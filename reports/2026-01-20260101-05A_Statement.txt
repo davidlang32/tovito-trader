@@ -1,0 +1,38 @@
+======================================================================
+TOVITO TRADER - MONTHLY ACCOUNT STATEMENT
+======================================================================
+Period: January 2026
+Generated: 2026-01-14
+
+Investor: Michael McCollum
+Account ID: 20260101-05A
+======================================================================
+
+CURRENT POSITION (as of month-end)
+----------------------------------------------------------------------
+  Shares Owned:                        0.0000
+  Share Price (NAV):     $             1.0224
+  Gross Market Value:    $               0.00
+
+  Net Investment (Cost): $               0.00
+  Unrealized Gain/Loss:  $               0.00
+
+  Tax Liability (37%):   $               0.00
+  After-Tax Value:       $               0.00
+----------------------------------------------------------------------
+
+TRANSACTIONS - January 2026
+----------------------------------------------------------------------
+No transactions this month
+
+======================================================================
+NOTES
+----------------------------------------------------------------------
+• Gross Market Value is before taxes
+• After-Tax Value includes estimated federal tax (37%)
+• Tax liability is estimated; actual tax may vary based on your bracket
+• Returns calculated using NAV per share at period start/end
+• Shares are valued at current NAV per share
+======================================================================
+
+Questions? Contact: david.lang@tovitotrader.com

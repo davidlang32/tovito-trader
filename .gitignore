@@ -1,0 +1,28 @@
+# Environment files
+.env
+.env.development
+.env.production
+
+# Dependencies
+node_modules/
+__pycache__/
+.pytest_cache/
+*.pyc
+venv/
+
+# Database
+data/tovito.db
+data/test_tovito.db
+data/backups/
+
+# Logs
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

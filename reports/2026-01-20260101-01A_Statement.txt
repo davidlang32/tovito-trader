@@ -1,0 +1,39 @@
+======================================================================
+TOVITO TRADER - MONTHLY ACCOUNT STATEMENT
+======================================================================
+Period: January 2026
+Generated: 2026-01-14
+
+Investor: David Lang
+Account ID: 20260101-01A
+======================================================================
+
+CURRENT POSITION (as of month-end)
+----------------------------------------------------------------------
+  Shares Owned:                   15,000.0000
+  Share Price (NAV):     $             1.0224
+  Gross Market Value:    $          15,336.15
+
+  Net Investment (Cost): $          15,000.00
+  Unrealized Gain/Loss:  $             336.15
+  Total Return:                         2.24%
+
+  Tax Liability (37%):   $             124.38
+  After-Tax Value:       $          15,211.77
+----------------------------------------------------------------------
+
+TRANSACTIONS - January 2026
+----------------------------------------------------------------------
+No transactions this month
+
+======================================================================
+NOTES
+----------------------------------------------------------------------
+• Gross Market Value is before taxes
+• After-Tax Value includes estimated federal tax (37%)
+• Tax liability is estimated; actual tax may vary based on your bracket
+• Returns calculated using NAV per share at period start/end
+• Shares are valued at current NAV per share
+======================================================================
+
+Questions? Contact: david.lang@tovitotrader.com

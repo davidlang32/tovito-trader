@@ -1,0 +1,41 @@
+{
+  "enabled": true,
+  "check_interval_seconds": 300,
+  
+  "thresholds": {
+    "stock_percent_change": 3.0,
+    "option_percent_change": 15.0,
+    "sgov_percent_change": 0.5,
+    "portfolio_percent_change": 2.0,
+    "volume_multiplier": 2.0,
+    "atr_exit_multiple": 3.0
+  },
+  
+  "plan_m": {
+    "enabled": true,
+    "atr_period": 14,
+    "exit_atr_multiple": 3.0,
+    "description": "Exit immediately when position moves 3 ATR in a day"
+  },
+  
+  "portfolio_goals": [
+    {"name": "Goal 1: $25K", "value": 25000, "enabled": true},
+    {"name": "Goal 2: $50K", "value": 50000, "enabled": true},
+    {"name": "Goal 3: $75K", "value": 75000, "enabled": true},
+    {"name": "Goal 4: $100K", "value": 100000, "enabled": true}
+  ],
+  
+  "watch_symbols": [
+    "SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "META", "GOOGL", "AMZN"
+  ],
+  
+  "notifications": {
+    "sound": true,
+    "visual": true,
+    "email": true,
+    "discord": false,
+    "discord_webhook": ""
+  },
+  
+  "email_service_path": "C:/tovito-trader/src/automation/email_service.py"
+}

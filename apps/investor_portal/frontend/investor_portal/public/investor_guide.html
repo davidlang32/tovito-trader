@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investor Guide - Tovito Trader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .prose h2 { margin-top: 2rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #e5e7eb; }
+        .prose h3 { margin-top: 1.5rem; margin-bottom: 0.75rem; }
+        .prose table { width: 100%; margin: 1rem 0; }
+        .prose th, .prose td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #e5e7eb; }
+        .prose th { background: #f9fafb; font-weight: 600; }
+        .prose code { background: #f3f4f6; padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.875rem; }
+        .prose pre { background: #1f2937; color: #e5e7eb; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+        .prose pre code { background: transparent; padding: 0; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-blue-100 rounded-lg">
+                    <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="font-bold text-gray-900">Tovito Trader</h1>
+                    <p class="text-xs text-gray-500">Investor Guide</p>
+                </div>
+            </div>
+            <a href="/" class="text-blue-600 hover:text-blue-700 text-sm font-medium">← Back to Portal</a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-4xl mx-auto px-4 py-8">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 prose max-w-none">
+            
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">Investor Guide</h1>
+            <p class="text-gray-500 mb-8">Everything you need to know about your investment account</p>
+
+            <!-- Table of Contents -->
+            <div class="bg-gray-50 rounded-lg p-6 mb-8">
+                <h3 class="text-lg font-semibold mb-4">Quick Navigation</h3>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    <a href="#getting-started" class="text-blue-600 hover:underline">Getting Started</a>
+                    <a href="#dashboard" class="text-blue-600 hover:underline">Your Dashboard</a>
+                    <a href="#contributions" class="text-blue-600 hover:underline">Contributions</a>
+                    <a href="#withdrawals" class="text-blue-600 hover:underline">Withdrawals</a>
+                    <a href="#transactions" class="text-blue-600 hover:underline">Transactions</a>
+                    <a href="#faq" class="text-blue-600 hover:underline">FAQ</a>
+                </div>
+            </div>
+
+            <!-- Getting Started -->
+            <h2 id="getting-started" class="text-2xl font-bold text-gray-900">Getting Started</h2>
+            
+            <h3 class="text-xl font-semibold text-gray-800">First-Time Login</h3>
+            <ol class="list-decimal list-inside space-y-2 text-gray-700">
+                <li>Open the investor portal URL provided by your fund administrator</li>
+                <li>Enter your registered email address</li>
+                <li>Enter your password</li>
+                <li>Click <strong>Sign In</strong></li>
+            </ol>
+            <p class="text-gray-600 mt-4">If you don't have a password yet, contact the fund administrator to set up your account.</p>
+
+            <h3 class="text-xl font-semibold text-gray-800">Password Requirements</h3>
+            <ul class="list-disc list-inside space-y-1 text-gray-700">
+                <li>At least 8 characters</li>
+                <li>At least one uppercase letter (A-Z)</li>
+                <li>At least one lowercase letter (a-z)</li>
+                <li>At least one number (0-9)</li>
+                <li>At least one special character (!@#$%^&* etc.)</li>
+            </ul>
+
+            <!-- Dashboard -->
+            <h2 id="dashboard" class="text-2xl font-bold text-gray-900">Understanding Your Dashboard</h2>
+
+            <h3 class="text-xl font-semibold text-gray-800">Portfolio Overview</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>What It Means</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Portfolio Value</strong></td>
+                        <td>The current dollar value of your investment</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Current Shares</strong></td>
+                        <td>How many shares of the fund you own</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Total Return ($)</strong></td>
+                        <td>How much you've gained or lost in dollars</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Total Return (%)</strong></td>
+                        <td>Your gain or loss as a percentage</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Portfolio Share</strong></td>
+                        <td>Your ownership percentage of the total fund</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3 class="text-xl font-semibold text-gray-800">NAV Per Share</h3>
+            <p class="text-gray-700">The <strong>Net Asset Value (NAV) per share</strong> is the price of one share of the fund. It's calculated daily after the market closes:</p>
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 my-4">
+                <code class="text-blue-800">NAV = Total Portfolio Value / Total Shares Outstanding</code>
+            </div>
+
+            <h3 class="text-xl font-semibold text-gray-800">Fund Performance</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Period</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Daily</td>
+                        <td>Change from yesterday</td>
+                    </tr>
+                    <tr>
+                        <td>Month-to-Date</td>
+                        <td>Change since the 1st of this month</td>
+                    </tr>
+                    <tr>
+                        <td>Year-to-Date</td>
+                        <td>Change since January 1st</td>
+                    </tr>
+                    <tr>
+                        <td>Since Inception</td>
+                        <td>Total return since the fund started</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- Contributions -->
+            <h2 id="contributions" class="text-2xl font-bold text-gray-900">Contributions</h2>
+
+            <h3 class="text-xl font-semibold text-gray-800">How to Make a Contribution</h3>
+            <ol class="list-decimal list-inside space-y-2 text-gray-700">
+                <li>Transfer funds to the fund's brokerage account</li>
+                <li>Notify the fund administrator of the transfer</li>
+                <li>Once funds clear, the administrator will process your contribution</li>
+                <li>New shares will be issued at that day's NAV</li>
+            </ol>
+
+            <h3 class="text-xl font-semibold text-gray-800">How Shares Are Calculated</h3>
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4 my-4">
+                <code class="text-green-800">New Shares = Contribution Amount / Current NAV</code>
+            </div>
+            <p class="text-gray-700"><strong>Example:</strong> If you contribute $5,000 and the current NAV is $1.15 per share, you receive 4,347.83 shares.</p>
+
+            <!-- Withdrawals -->
+            <h2 id="withdrawals" class="text-2xl font-bold text-gray-900">Withdrawals</h2>
+
+            <h3 class="text-xl font-semibold text-gray-800">How to Request a Withdrawal</h3>
+            <ol class="list-decimal list-inside space-y-2 text-gray-700">
+                <li>Contact the fund administrator with your withdrawal request</li>
+                <li>Specify the amount you wish to withdraw</li>
+                <li>The administrator will process your request</li>
+                <li>Funds will be transferred after tax withholding</li>
+            </ol>
+
+            <h3 class="text-xl font-semibold text-gray-800">Understanding Tax Withholding</h3>
+            <p class="text-gray-700">When you withdraw, you may have <strong>realized gains</strong> that are subject to tax. The fund automatically withholds estimated taxes.</p>
+            
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 my-4">
+                <h4 class="font-semibold text-amber-800 mb-2">Example Withdrawal:</h4>
+                <ul class="text-amber-900 space-y-1">
+                    <li>You withdraw: <strong>$5,000</strong></li>
+                    <li>Cost basis of those shares: $4,500</li>
+                    <li>Realized gain: $500</li>
+                    <li>Tax withheld (37%): $185</li>
+                    <li>You receive: <strong>$4,815</strong></li>
+                </ul>
+            </div>
+
+            <!-- Transactions -->
+            <h2 id="transactions" class="text-2xl font-bold text-gray-900">Your Transaction History</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Transaction Type</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="text-green-600">Contribution</span></td>
+                        <td>Money you added to the fund</td>
+                    </tr>
+                    <tr>
+                        <td><span class="text-red-600">Withdrawal</span></td>
+                        <td>Money you took out of the fund</td>
+                    </tr>
+                    <tr>
+                        <td><span class="text-amber-600">Tax Withholding</span></td>
+                        <td>Taxes withheld on realized gains</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- FAQ -->
+            <h2 id="faq" class="text-2xl font-bold text-gray-900">Frequently Asked Questions</h2>
+
+            <div class="space-y-6">
+                <div>
+                    <h4 class="font-semibold text-gray-800">How often is my portfolio value updated?</h4>
+                    <p class="text-gray-700">The portfolio value is updated daily after the market closes (around 4:00 PM ET). Weekend and holiday values remain unchanged until the next market day.</p>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold text-gray-800">Why did my share count change?</h4>
+                    <p class="text-gray-700">Your share count only changes when you make a contribution (shares increase) or withdrawal (shares decrease). Daily market movements change the <em>value</em> of your shares, not the <em>number</em> of shares.</p>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold text-gray-800">How is my return calculated?</h4>
+                    <div class="bg-gray-50 rounded-lg p-4 mt-2">
+                        <code>Total Return = Current Value - Net Investment</code><br>
+                        <code>Return % = (Total Return / Net Investment) × 100</code>
+                    </div>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold text-gray-800">What is the tax rate used for withholding?</h4>
+                    <p class="text-gray-700">The fund withholds at the highest federal marginal rate (currently 37%) to ensure sufficient taxes are set aside. Your actual tax liability may differ based on your personal tax situation.</p>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold text-gray-800">How do I get my monthly statement?</h4>
+                    <p class="text-gray-700">Monthly statements are emailed to you by the 5th of each month. You can also request statements from the fund administrator.</p>
+                </div>
+            </div>
+
+            <!-- Security -->
+            <h2 class="text-2xl font-bold text-gray-900">Security</h2>
+            <ul class="list-disc list-inside space-y-2 text-gray-700">
+                <li>Use a strong, unique password</li>
+                <li>Don't share your login credentials</li>
+                <li>Log out when using shared computers</li>
+                <li>Your session expires after 30 minutes of inactivity</li>
+                <li>After 5 failed login attempts, your account is temporarily locked for 15 minutes</li>
+            </ul>
+
+            <!-- Glossary -->
+            <h2 class="text-2xl font-bold text-gray-900">Glossary</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Term</th>
+                        <th>Definition</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>NAV</strong></td><td>Net Asset Value - the price per share of the fund</td></tr>
+                    <tr><td><strong>Share</strong></td><td>A unit of ownership in the fund</td></tr>
+                    <tr><td><strong>Contribution</strong></td><td>Money you invest into the fund</td></tr>
+                    <tr><td><strong>Withdrawal</strong></td><td>Money you take out of the fund</td></tr>
+                    <tr><td><strong>Realized Gain</strong></td><td>Profit that is "locked in" when you sell/withdraw</td></tr>
+                    <tr><td><strong>Cost Basis</strong></td><td>The original value of your investment</td></tr>
+                    <tr><td><strong>YTD</strong></td><td>Year-to-Date - performance since January 1st</td></tr>
+                    <tr><td><strong>MTD</strong></td><td>Month-to-Date - performance since the 1st of the month</td></tr>
+                </tbody>
+            </table>
+
+            <!-- Contact -->
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mt-8">
+                <h3 class="text-lg font-semibold text-blue-900 mb-2">Need Help?</h3>
+                <p class="text-blue-800">For questions about your account, transactions, or login issues, contact the fund administrator.</p>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-gray-200 mt-12">
+        <div class="max-w-4xl mx-auto px-4 py-6 text-center text-sm text-gray-500">
+            <p>Tovito Trader © 2026 | Last updated: February 2026</p>
+        </div>
+    </footer>
+</body>
+</html>

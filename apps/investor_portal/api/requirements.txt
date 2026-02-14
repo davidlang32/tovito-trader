@@ -1,0 +1,30 @@
+# Fund API Dependencies
+# Install with: pip install -r requirements.txt
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Authentication
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0
+
+# Validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+email-validator>=2.1.0
+
+# Database
+# (uses sqlite3 from standard library)
+
+# File handling
+python-multipart>=0.0.6
+aiofiles>=23.2.1
+
+# HTTP Client (for testing)
+requests>=2.31.0
+
+# Development
+httpx>=0.25.0
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
