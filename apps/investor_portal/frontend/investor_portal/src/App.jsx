@@ -1,8 +1,8 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
-import { 
-  TrendingUp, TrendingDown, DollarSign, PieChart, 
+import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import {
+  TrendingUp, TrendingDown, DollarSign, PieChart,
   LogOut, RefreshCw, ArrowUpRight, ArrowDownRight,
-  User, FileText, Clock, AlertCircle, CheckCircle,
+  User, FileText, Clock, AlertCircle,
   Eye, EyeOff, Loader2
 } from 'lucide-react';
 
@@ -32,15 +32,13 @@ const AuthProvider = ({ children }) => {
   });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (tokens?.access_token) {
-      fetchUser();
-    } else {
-      setLoading(false);
-    }
+  const logout = useCallback(() => {
+    setUser(null);
+    setTokens(null);
+    localStorage.removeItem('tokens');
   }, []);
 
-  const fetchUser = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${tokens.access_token}` }
@@ -56,7 +54,15 @@ const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tokens, logout]);
+
+  useEffect(() => {
+    if (tokens?.access_token) {
+      fetchUser();
+    } else {
+      setLoading(false);
+    }
+  }, [tokens, fetchUser]);
 
   const login = async (email, password) => {
     const res = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -64,39 +70,33 @@ const AuthProvider = ({ children }) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
-    
+
     const data = await res.json();
-    
+
     if (!res.ok) {
       throw new Error(data.detail || 'Login failed');
     }
-    
+
     const newTokens = {
       access_token: data.access_token,
       refresh_token: data.refresh_token
     };
-    
+
     setTokens(newTokens);
     localStorage.setItem('tokens', JSON.stringify(newTokens));
-    
+
     setUser({
       name: data.investor_name,
       email: email
     });
-    
+
     return data;
   };
 
-  const logout = () => {
-    setUser(null);
-    setTokens(null);
-    localStorage.removeItem('tokens');
-  };
-
-  const getAuthHeaders = () => ({
+  const getAuthHeaders = useCallback(() => ({
     Authorization: `Bearer ${tokens?.access_token}`,
     'Content-Type': 'application/json'
-  });
+  }), [tokens]);
 
   return (
     <AuthContext.Provider value={{ user, tokens, loading, login, logout, getAuthHeaders }}>
@@ -115,7 +115,7 @@ const useApi = (endpoint, options = {}) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -131,11 +131,11 @@ const useApi = (endpoint, options = {}) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [endpoint, getAuthHeaders, options]);
 
   useEffect(() => {
     fetchData();
-  }, [endpoint]);
+  }, [fetchData]);
 
   return { data, loading, error, refetch: fetchData };
 };
@@ -296,7 +296,7 @@ const TransactionRow = ({ transaction }) => {
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
-  const { data: position, loading: positionLoading, refetch: refetchPosition } = useApi('/investor/position');
+  const { data: position, refetch: refetchPosition } = useApi('/investor/position');
   const { data: navData } = useApi('/nav/current');
   const { data: performance } = useApi('/nav/performance');
   const { data: transactions } = useApi('/investor/transactions?limit=5');
@@ -352,7 +352,7 @@ const Dashboard = () => {
         {/* Welcome */}
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900">Welcome back, {user?.name?.split(' ')[0]}</h2>
-          <p className="text-gray-500">Here's your portfolio overview as of {position?.as_of_date || 'today'}</p>
+          <p className="text-gray-500">{"Here's your portfolio overview as of "}{position?.as_of_date || 'today'}</p>
         </div>
 
         {/* Stats Grid */}
