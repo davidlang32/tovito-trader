@@ -1,7 +1,11 @@
-# Environment files
+# Environment files (contain secrets)
 .env
-.env.development
-.env.production
+config/.env.development
+config/.env.production
+config/.env.test
+
+# Brokerage session files
+.tastytrade_session
 
 # Dependencies
 node_modules/
@@ -9,11 +13,21 @@ __pycache__/
 .pytest_cache/
 *.pyc
 venv/
+=12.0.0
 
-# Database
+# Database files (production, dev, test, backups)
 data/tovito.db
+data/dev_tovito.db
 data/test_tovito.db
+data/tovito_test.db
 data/backups/
+
+# Generated reports and exports
+data/reports/
+data/exports/
+
+# Analytics databases
+analytics/*.db
 
 # Logs
 logs/
@@ -26,3 +40,10 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+nul
+
+# Test artifacts
+test_reports/
+
+# Plan files (session-specific)
+PLAN.md
