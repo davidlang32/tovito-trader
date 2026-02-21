@@ -507,16 +507,188 @@ def cancel_withdrawal_request(request_id: int, investor_id: str) -> bool:
     """Cancel a withdrawal request (only if PENDING and owned by investor)"""
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     try:
         cursor.execute("""
             UPDATE withdrawal_requests
             SET status = 'CANCELLED', updated_at = datetime('now')
             WHERE id = ? AND investor_id = ? AND status = 'PENDING'
         """, (request_id, investor_id))
-        
+
         conn.commit()
         return cursor.rowcount > 0
-        
+
     finally:
         conn.close()
+
+
+# ============================================================
+# Fund Flow Requests (unified contribution/withdrawal lifecycle)
+# ============================================================
+
+def create_fund_flow_request(
+    investor_id: str,
+    flow_type: str,
+    amount: float,
+    method: str = 'portal',
+    notes: Optional[str] = None,
+) -> int:
+    """
+    Create a new fund flow request (contribution or withdrawal).
+
+    Args:
+        investor_id: Investor who owns the request
+        flow_type: 'contribution' or 'withdrawal'
+        amount: Requested amount (must be positive)
+        method: How the request was submitted ('portal', 'email', etc.)
+        notes: Optional notes
+
+    Returns:
+        request_id of the newly created request
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO fund_flow_requests (
+                investor_id, flow_type, requested_amount, request_date,
+                request_method, status, notes, created_at, updated_at
+            ) VALUES (?, ?, ?, date('now'), ?, 'pending', ?, datetime('now'), datetime('now'))
+        """, (investor_id, flow_type, amount, method, notes))
+
+        conn.commit()
+        return cursor.lastrowid
+
+    finally:
+        conn.close()
+
+
+def get_fund_flow_requests(
+    investor_id: str,
+    status: Optional[str] = None,
+    flow_type: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict]:
+    """
+    Get fund flow requests for an investor.
+
+    Args:
+        investor_id: Filter by investor
+        status: Optional status filter ('pending', 'approved', etc.)
+        flow_type: Optional type filter ('contribution' or 'withdrawal')
+        limit: Max results to return
+
+    Returns:
+        List of fund flow request dicts
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        query = """
+            SELECT request_id, investor_id, flow_type, requested_amount,
+                   request_date, request_method, status,
+                   approved_date, rejection_reason,
+                   matched_trade_id, matched_date,
+                   processed_date, actual_amount, shares_transacted,
+                   nav_per_share, transaction_id,
+                   realized_gain, tax_withheld, net_proceeds,
+                   notes, created_at, updated_at
+            FROM fund_flow_requests
+            WHERE investor_id = ?
+        """
+        params: list = [investor_id]
+
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+
+        if flow_type:
+            query += " AND flow_type = ?"
+            params.append(flow_type)
+
+        query += " ORDER BY request_date DESC, request_id DESC LIMIT ?"
+        params.append(limit)
+
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+    finally:
+        conn.close()
+
+
+def cancel_fund_flow_request(request_id: int, investor_id: str) -> bool:
+    """
+    Cancel a fund flow request. Only pending/approved requests
+    owned by the investor can be cancelled.
+
+    Returns:
+        True if a row was updated
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            UPDATE fund_flow_requests
+            SET status = 'cancelled', updated_at = datetime('now')
+            WHERE request_id = ? AND investor_id = ?
+            AND status IN ('pending', 'approved')
+        """, (request_id, investor_id))
+
+        conn.commit()
+        return cursor.rowcount > 0
+
+    finally:
+        conn.close()
+
+
+def get_fund_flow_estimate(investor_id: str, flow_type: str, amount: float) -> Dict:
+    """
+    Calculate estimate for a fund flow request.
+
+    For contributions: shows estimated shares to be purchased.
+    For withdrawals: shows estimated tax and net proceeds.
+
+    Returns:
+        Dict with estimate fields
+    """
+    position = get_investor_position(investor_id)
+
+    if position is None:
+        raise ValueError("Position not found")
+
+    current_nav = position["current_nav"]
+    current_value = position["current_value"]
+    net_investment = position["net_investment"]
+
+    if flow_type == 'contribution':
+        estimated_shares = round(amount / current_nav, 4) if current_nav > 0 else 0
+        return {
+            "flow_type": "contribution",
+            "amount": round(amount, 2),
+            "current_nav": current_nav,
+            "estimated_shares": estimated_shares,
+            "new_total_shares": round(position["current_shares"] + estimated_shares, 4),
+        }
+    else:
+        # Withdrawal estimate with tax
+        proportion = amount / current_value if current_value > 0 else 0
+        unrealized_gain = max(0, current_value - net_investment)
+        realized_gain = round(unrealized_gain * proportion, 2)
+        tax = round(realized_gain * settings.TAX_RATE, 2)
+        net_proceeds = round(amount - tax, 2)
+        estimated_shares = round(amount / current_nav, 4) if current_nav > 0 else 0
+
+        return {
+            "flow_type": "withdrawal",
+            "amount": round(amount, 2),
+            "current_nav": current_nav,
+            "proportion": round(proportion * 100, 2),
+            "estimated_shares": estimated_shares,
+            "realized_gain": realized_gain,
+            "estimated_tax": tax,
+            "net_proceeds": net_proceeds,
+            "remaining_shares": round(position["current_shares"] - estimated_shares, 4),
+        }

@@ -136,7 +136,7 @@ class TaskScheduler:
     def _is_trading_day(self) -> bool:
         """Check if today is a trading day"""
         try:
-            is_open = self.nav_calculator.tradier.is_market_open()
+            is_open = self.nav_calculator.brokerage.is_market_open()
             return is_open
         except:
             # If can't check, assume it's a trading day (safer to update)

@@ -9,17 +9,18 @@ import os
 from dotenv import load_dotenv
 
 from src.database.models import Database, Investor, DailyNAV, Transaction, SystemLog
-from src.api.tradier import TradierClient
+from src.api.brokerage import get_brokerage_client, get_combined_balance, get_configured_providers
 
 load_dotenv()
 
 
 class NAVCalculator:
     """Handles all NAV calculations and daily updates"""
-    
-    def __init__(self):
-        self.db = Database()
-        self.tradier = TradierClient()
+
+    def __init__(self, db_path: str = None, brokerage_provider: str = None):
+        self.db = Database(db_path)
+        # Keep a single client reference for non-balance operations (e.g. is_market_open)
+        self.brokerage = get_brokerage_client(brokerage_provider)
         self.tax_rate = float(os.getenv('TAX_RATE', 0.37))
     
     def fetch_and_update_nav(self, update_date: date = None) -> Dict:
@@ -38,12 +39,16 @@ class NAVCalculator:
         session = self.db.get_session()
         
         try:
-            # 1. Fetch balance from Tradier
-            print(f"📡 Fetching account balance from Tradier...")
-            balance_data = self.tradier.get_account_balance()
+            # 1. Fetch balance from all configured brokerages
+            providers = get_configured_providers()
+            print(f"Fetching account balance from {', '.join(providers)}...")
+            balance_data = get_combined_balance()
             total_portfolio_value = balance_data['total_equity']
-            
-            print(f"✅ Account balance: ${total_portfolio_value:,.2f}")
+
+            # Log per-brokerage breakdown for audit trail
+            for prov, detail in balance_data.get('brokerage_details', {}).items():
+                print(f"  {prov}: ${detail.get('total_equity', 0):,.2f}")
+            print(f"Combined portfolio balance: ${total_portfolio_value:,.2f}")
             
             # 2. Get total shares from database
             total_shares = self._get_total_active_shares(session)

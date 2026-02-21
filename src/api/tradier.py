@@ -162,10 +162,137 @@ class TradierClient:
         except requests.RequestException as e:
             raise Exception(f"Failed to fetch history: {str(e)}")
     
+    def get_transactions(self, start_date=None, end_date=None):
+        """
+        Get normalized transaction history.
+
+        Wraps get_history() and normalizes to the standard format
+        defined by the BrokerageClient protocol.
+
+        Args:
+            start_date: Start date (defaults to 30 days ago)
+            end_date: End date (defaults to today)
+
+        Returns:
+            list of dicts with standardized transaction fields
+        """
+        raw_events = self.get_history(start_date, end_date)
+        normalized = []
+
+        for idx, event in enumerate(raw_events):
+            trade_type = (event.get('type', '') or '').lower()
+            description = (event.get('description', '') or '').lower()
+
+            # Categorize
+            category, subcategory = self._categorize_transaction(
+                trade_type, description, event
+            )
+
+            # Tradier history events often lack an 'id' field.
+            # Generate a synthetic ID matching the original import pattern.
+            brokerage_id = str(event.get('id', ''))
+            if not brokerage_id:
+                brokerage_id = f"GENERATED_{event.get('date', 'unknown')}_{idx}_{trade_type}"
+
+            normalized.append({
+                'date': (event.get('date', '') or '').split('T')[0],
+                'transaction_type': trade_type,
+                'symbol': event.get('symbol', '') or '',
+                'quantity': float(event['quantity']) if event.get('quantity') else None,
+                'price': float(event['price']) if event.get('price') else None,
+                'amount': float(event.get('amount', 0)),
+                'commission': float(event.get('commission', 0)),
+                'fees': 0.0,
+                'option_type': event.get('option_type') or None,
+                'strike': float(event['strike']) if event.get('strike') else None,
+                'expiration_date': event.get('expiration_date') or None,
+                'description': event.get('description', '') or '',
+                'brokerage_transaction_id': brokerage_id,
+                'category': category,
+                'subcategory': subcategory,
+            })
+
+        return normalized
+
+    @staticmethod
+    def _categorize_transaction(trade_type, description, event):
+        """Categorize a Tradier transaction for analysis."""
+        if trade_type in ('trade', 'option'):
+            category = 'Trade'
+            option_type = event.get('option_type')
+            if option_type:
+                subcategory = f"Option {option_type.title()}"
+            elif 'buy' in description or float(event.get('amount', 0)) < 0:
+                subcategory = 'Stock Buy'
+            elif 'sell' in description or float(event.get('amount', 0)) > 0:
+                subcategory = 'Stock Sell'
+            else:
+                subcategory = 'Trade'
+        elif trade_type in ('ach', 'wire', 'journal'):
+            category = 'Transfer'
+            subcategory = 'Deposit' if float(event.get('amount', 0)) > 0 else 'Withdrawal'
+        elif 'dividend' in trade_type:
+            category = 'Income'
+            subcategory = 'Dividend'
+        elif 'interest' in trade_type:
+            category = 'Income'
+            subcategory = 'Interest'
+        elif 'fee' in trade_type or 'commission' in trade_type:
+            category = 'Fee'
+            subcategory = trade_type.title()
+        else:
+            category = 'Other'
+            subcategory = trade_type.title() if trade_type else 'Unknown'
+
+        return category, subcategory
+
+    def get_raw_transactions(self, start_date=None, end_date=None):
+        """
+        Get raw transaction data from Tradier API for ETL staging.
+
+        Preserves original API response dicts, including all fields the
+        API returns. This data goes into brokerage_transactions_raw for
+        full audit trail before normalization.
+
+        Args:
+            start_date: Start date (defaults to 30 days ago)
+            end_date: End date (defaults to today)
+
+        Returns:
+            list of dicts with raw brokerage data for ETL staging
+        """
+        raw_events = self.get_history(start_date, end_date)
+        raw_results = []
+
+        for idx, event in enumerate(raw_events):
+            txn_date = (event.get('date', '') or '').split('T')[0]
+            txn_type = event.get('type', '') or ''
+            amount = float(event.get('amount', 0))
+
+            # Tradier history events often lack an 'id' field.
+            # Generate a synthetic ID matching the pattern used by the
+            # original import script for deduplication consistency.
+            brokerage_id = str(event.get('id', ''))
+            if not brokerage_id:
+                brokerage_id = f"GENERATED_{event.get('date', 'unknown')}_{idx}_{txn_type}"
+
+            raw_results.append({
+                'brokerage_transaction_id': brokerage_id,
+                'raw_data': event,  # Tradier API already returns dicts
+                'transaction_date': txn_date,
+                'transaction_type': txn_type,
+                'transaction_subtype': None,  # Tradier doesn't have subtypes
+                'symbol': event.get('symbol', '') or '',
+                'amount': amount,
+                'description': event.get('description', '') or '',
+            })
+
+        return raw_results
+
     def is_market_open(self) -> bool:
         """
         Check if market is currently open
-        
+
         Returns:
             bool: True if market is open
         """

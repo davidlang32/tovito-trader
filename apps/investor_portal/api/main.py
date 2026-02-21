@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 import time
 
 from .config import settings
-from .routes import auth, investor, nav, withdraw
+from .routes import auth, investor, nav, withdraw, fund_flow, profile, referral
 
 
 # Lifespan for startup/shutdown
@@ -82,6 +82,9 @@ app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(investor.router, prefix="/investor", tags=["Investor"])
 app.include_router(nav.router, prefix="/nav", tags=["NAV"])
 app.include_router(withdraw.router, prefix="/withdraw", tags=["Withdrawals"])
+app.include_router(fund_flow.router, prefix="/fund-flow", tags=["Fund Flow"])
+app.include_router(profile.router, prefix="/profile", tags=["Profile"])
+app.include_router(referral.router, prefix="/referral", tags=["Referral"])
 
 
 # Health check endpoint

@@ -18,20 +18,24 @@ REM Log start
 echo ============================================================ >> logs\watchdog_scheduler.log
 echo Watchdog started at %date% %time% >> logs\watchdog_scheduler.log
 
-REM Find Python - try multiple locations
+REM Find Python - try multiple locations (newest first)
 set PYTHON_EXE=
-if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python313\python.exe" (
-    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python313\python.exe
-) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python312\python.exe" (
-    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python312\python.exe
-) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python311\python.exe" (
-    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python311\python.exe
+if exist "C:\Python314\python.exe" (
+    set PYTHON_EXE=C:\Python314\python.exe
 ) else if exist "C:\Python313\python.exe" (
     set PYTHON_EXE=C:\Python313\python.exe
 ) else if exist "C:\Python312\python.exe" (
     set PYTHON_EXE=C:\Python312\python.exe
 ) else if exist "C:\Python311\python.exe" (
     set PYTHON_EXE=C:\Python311\python.exe
+) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python314\python.exe" (
+    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python314\python.exe
+) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python313\python.exe" (
+    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python313\python.exe
+) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python312\python.exe" (
+    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python312\python.exe
+) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python311\python.exe" (
+    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python311\python.exe
 ) else (
     where python >nul 2>&1
     if %errorlevel% equ 0 (
@@ -49,8 +53,9 @@ echo Using Python: %PYTHON_EXE% >> logs\watchdog_scheduler.log
 echo Using Python: %PYTHON_EXE%
 
 REM Run watchdog monitor
+echo Running watchdog_monitor.py... >> logs\watchdog_scheduler.log
 echo Running watchdog_monitor.py...
-%PYTHON_EXE% scripts\watchdog_monitor.py
+%PYTHON_EXE% apps\market_monitor\watchdog_monitor.py 2>> logs\watchdog_scheduler.log
 set RESULT=%errorlevel%
 
 REM Log result

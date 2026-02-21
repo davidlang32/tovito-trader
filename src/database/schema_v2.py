@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # SCHEMA DEFINITIONS
 # ============================================================
 
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "2.2.0"
 
 # Core tables
 INVESTORS_TABLE = """
@@ -173,8 +173,7 @@ TRADES_TABLE = """
 CREATE TABLE IF NOT EXISTS trades (
     -- Primary identifier
     trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tradier_transaction_id TEXT UNIQUE,  -- From Tradier API
-    
+
     -- Trade details
     date DATE NOT NULL,
     trade_type TEXT NOT NULL CHECK (
@@ -204,11 +203,249 @@ CREATE TABLE IF NOT EXISTS trades (
     -- Notes
     description TEXT,
     notes TEXT,
-    
+
+    -- Brokerage source tracking
+    source TEXT NOT NULL DEFAULT 'tradier',
+    brokerage_transaction_id TEXT,
+
     -- Metadata
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_deleted INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+HOLDINGS_SNAPSHOTS_TABLE = """
+CREATE TABLE IF NOT EXISTS holdings_snapshots (
+    snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date DATE NOT NULL,
+    source TEXT NOT NULL,
+    snapshot_time TIMESTAMP NOT NULL,
+    total_positions INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(date, source)
+);
+"""
+
+POSITION_SNAPSHOTS_TABLE = """
+CREATE TABLE IF NOT EXISTS position_snapshots (
+    position_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    underlying_symbol TEXT,
+    quantity REAL NOT NULL,
+    instrument_type TEXT,
+    average_open_price REAL,
+    close_price REAL,
+    market_value REAL,
+    cost_basis REAL,
+    unrealized_pl REAL,
+    option_type TEXT,
+    strike REAL,
+    expiration_date DATE,
+    multiplier INTEGER,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (snapshot_id) REFERENCES holdings_snapshots(snapshot_id)
+);
+"""
+
+BROKERAGE_TRANSACTIONS_RAW_TABLE = """
+CREATE TABLE IF NOT EXISTS brokerage_transactions_raw (
+    -- Primary identifier
+    raw_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- Source tracking
+    source TEXT NOT NULL,                    -- 'tradier' or 'tastytrade'
+    brokerage_transaction_id TEXT NOT NULL,  -- Original ID from brokerage API
+
+    -- Raw data (JSON blob preserving everything the API returned)
+    raw_data TEXT NOT NULL,
+
+    -- Extracted key fields (for querying without parsing JSON)
+    transaction_date DATE NOT NULL,
+    transaction_type TEXT NOT NULL,          -- Original brokerage type
+    transaction_subtype TEXT,                -- Original subtype
+    symbol TEXT,
+    amount REAL,
+    description TEXT,
+
+    -- ETL tracking
+    etl_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (etl_status IN ('pending', 'transformed', 'skipped', 'error')),
+    etl_transformed_at TIMESTAMP,
+    etl_trade_id INTEGER,                   -- FK to trades.trade_id after transform
+    etl_error TEXT,                          -- Error message if transform failed
+
+    -- Metadata
+    ingested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Deduplication
+    UNIQUE(source, brokerage_transaction_id)
+);
+"""
+
+FUND_FLOW_REQUESTS_TABLE = """
+CREATE TABLE IF NOT EXISTS fund_flow_requests (
+    -- Primary identifier
+    request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- Request details
+    investor_id TEXT NOT NULL,
+    flow_type TEXT NOT NULL CHECK (flow_type IN ('contribution', 'withdrawal')),
+    requested_amount REAL NOT NULL CHECK (requested_amount > 0),
+    request_date DATE NOT NULL,
+    request_method TEXT NOT NULL DEFAULT 'portal'
+        CHECK (request_method IN ('portal', 'email', 'verbal', 'admin', 'other')),
+
+    -- Lifecycle status
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'awaiting_funds', 'matched',
+                          'processed', 'rejected', 'cancelled')),
+
+    -- Approval
+    approved_by TEXT,
+    approved_date TIMESTAMP,
+    rejection_reason TEXT,
+
+    -- Brokerage matching (links to actual money movement)
+    matched_trade_id INTEGER,              -- FK to trades.trade_id (the ACH record)
+    matched_raw_id INTEGER,                -- FK to brokerage_transactions_raw.raw_id
+    matched_date TIMESTAMP,
+    matched_by TEXT,                        -- Who confirmed the match
+
+    -- Processing (share accounting)
+    processed_date TIMESTAMP,
+    actual_amount REAL,                    -- May differ from requested (e.g., fees)
+    shares_transacted REAL,
+    nav_per_share REAL,
+    transaction_id INTEGER,                -- FK to transactions.transaction_id
+
+    -- Withdrawal-specific tax fields
+    realized_gain REAL,
+    tax_withheld REAL DEFAULT 0,
+    net_proceeds REAL,
+
+    -- Notes
+    notes TEXT,
+
+    -- Metadata
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Foreign keys
+    FOREIGN KEY (investor_id) REFERENCES investors(investor_id),
+    FOREIGN KEY (matched_trade_id) REFERENCES trades(trade_id),
+    FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id)
+);
+"""
+
+INVESTOR_PROFILES_TABLE = """
+CREATE TABLE IF NOT EXISTS investor_profiles (
+    -- Primary identifier
+    profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    investor_id TEXT NOT NULL UNIQUE,
+
+    -- Contact Information (Section 1)
+    full_legal_name TEXT,
+    home_address_line1 TEXT,
+    home_address_line2 TEXT,
+    home_city TEXT,
+    home_state TEXT,
+    home_zip TEXT,
+    home_country TEXT DEFAULT 'US',
+    mailing_same_as_home INTEGER DEFAULT 1,
+    mailing_address_line1 TEXT,
+    mailing_address_line2 TEXT,
+    mailing_city TEXT,
+    mailing_state TEXT,
+    mailing_zip TEXT,
+    mailing_country TEXT,
+    email_primary TEXT,
+    phone_mobile TEXT,
+    phone_home TEXT,
+    phone_work TEXT,
+
+    -- Personal Information (Section 2)
+    date_of_birth TEXT,                     -- Encrypted (Fernet) if sensitive
+    marital_status TEXT CHECK (marital_status IN (
+        'single', 'married', 'divorced', 'widowed', 'domestic_partnership', NULL
+    )),
+    num_dependents INTEGER DEFAULT 0,
+    citizenship TEXT DEFAULT 'US',
+
+    -- Employment Information (Section 3)
+    employment_status TEXT CHECK (employment_status IN (
+        'employed', 'self_employed', 'retired', 'unemployed', 'student', NULL
+    )),
+    occupation TEXT,
+    job_title TEXT,
+    employer_name TEXT,
+    employer_address TEXT,
+
+    -- Sensitive PII — Application-level encrypted (Fernet)
+    ssn_encrypted TEXT,                     -- Social Security Number
+    tax_id_encrypted TEXT,                  -- Tax ID (if different from SSN)
+    bank_routing_encrypted TEXT,            -- Bank routing number
+    bank_account_encrypted TEXT,            -- Bank account number
+    bank_name TEXT,                         -- Not encrypted (not sensitive alone)
+    bank_account_type TEXT CHECK (bank_account_type IN ('checking', 'savings', NULL)),
+
+    -- Accreditation
+    is_accredited INTEGER DEFAULT 0,
+    accreditation_method TEXT,
+    accreditation_verified_date DATE,
+    accreditation_expires_date DATE,
+    accreditation_docs_on_file INTEGER DEFAULT 0,
+
+    -- Preferences
+    communication_preference TEXT DEFAULT 'email'
+        CHECK (communication_preference IN ('email', 'phone', 'mail')),
+    statement_delivery TEXT DEFAULT 'electronic'
+        CHECK (statement_delivery IN ('electronic', 'paper', 'both')),
+
+    -- Metadata
+    profile_completed INTEGER DEFAULT 0,
+    last_verified_date DATE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (investor_id) REFERENCES investors(investor_id)
+);
+"""
+
+REFERRALS_TABLE = """
+CREATE TABLE IF NOT EXISTS referrals (
+    -- Primary identifier
+    referral_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- Referrer (existing investor)
+    referrer_investor_id TEXT NOT NULL,
+    referral_code TEXT NOT NULL UNIQUE,
+
+    -- Referred person
+    referred_name TEXT,
+    referred_email TEXT,
+    referred_date DATE NOT NULL,
+
+    -- Outcome tracking
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'contacted', 'onboarded', 'expired', 'declined')),
+    converted_investor_id TEXT,
+    converted_date DATE,
+
+    -- Incentive tracking
+    incentive_type TEXT,
+    incentive_amount REAL,
+    incentive_paid INTEGER DEFAULT 0,
+    incentive_paid_date DATE,
+
+    -- Metadata
+    notes TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (referrer_investor_id) REFERENCES investors(investor_id),
+    FOREIGN KEY (converted_investor_id) REFERENCES investors(investor_id)
 );
 """
 
@@ -269,8 +506,38 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(date)",
     "CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)",
     "CREATE INDEX IF NOT EXISTS idx_trades_type ON trades(trade_type)",
-    "CREATE INDEX IF NOT EXISTS idx_trades_tradier_id ON trades(tradier_transaction_id)",
+    "CREATE INDEX IF NOT EXISTS idx_trades_brokerage_id ON trades(brokerage_transaction_id)",
     
+    "CREATE INDEX IF NOT EXISTS idx_trades_source ON trades(source)",
+    "CREATE INDEX IF NOT EXISTS idx_trades_date_source ON trades(date, source)",
+
+    # Holdings Snapshots
+    "CREATE INDEX IF NOT EXISTS idx_holdings_snapshots_date ON holdings_snapshots(date)",
+
+    # Position Snapshots
+    "CREATE INDEX IF NOT EXISTS idx_position_snapshots_snapshot ON position_snapshots(snapshot_id)",
+    "CREATE INDEX IF NOT EXISTS idx_position_snapshots_symbol ON position_snapshots(symbol)",
+
+    # Brokerage Transactions Raw (ETL staging)
+    "CREATE INDEX IF NOT EXISTS idx_raw_txn_source_brokerage_id ON brokerage_transactions_raw(source, brokerage_transaction_id)",
+    "CREATE INDEX IF NOT EXISTS idx_raw_txn_etl_status ON brokerage_transactions_raw(etl_status)",
+    "CREATE INDEX IF NOT EXISTS idx_raw_txn_date ON brokerage_transactions_raw(transaction_date)",
+    "CREATE INDEX IF NOT EXISTS idx_raw_txn_source_date ON brokerage_transactions_raw(source, transaction_date)",
+
+    # Fund Flow Requests
+    "CREATE INDEX IF NOT EXISTS idx_fund_flow_investor ON fund_flow_requests(investor_id)",
+    "CREATE INDEX IF NOT EXISTS idx_fund_flow_status ON fund_flow_requests(status)",
+    "CREATE INDEX IF NOT EXISTS idx_fund_flow_type ON fund_flow_requests(flow_type)",
+    "CREATE INDEX IF NOT EXISTS idx_fund_flow_matched_trade ON fund_flow_requests(matched_trade_id)",
+
+    # Investor Profiles
+    "CREATE INDEX IF NOT EXISTS idx_investor_profiles_investor ON investor_profiles(investor_id)",
+
+    # Referrals
+    "CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_investor_id)",
+    "CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals(referral_code)",
+    "CREATE INDEX IF NOT EXISTS idx_referrals_status ON referrals(status)",
+
     # Audit Log
     "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)",
     "CREATE INDEX IF NOT EXISTS idx_audit_table ON audit_log(table_name)",
@@ -522,6 +789,8 @@ class DatabaseManager:
             cursor.execute(DAILY_NAV_TABLE)
             cursor.execute(TAX_EVENTS_TABLE)
             cursor.execute(TRADES_TABLE)
+            cursor.execute(HOLDINGS_SNAPSHOTS_TABLE)
+            cursor.execute(POSITION_SNAPSHOTS_TABLE)
             cursor.execute(AUDIT_LOG_TABLE)
             cursor.execute(SYSTEM_CONFIG_TABLE)
             
@@ -635,6 +904,8 @@ class DatabaseManager:
             # Create new tables if they don't exist
             cursor.execute(TAX_EVENTS_TABLE)
             cursor.execute(TRADES_TABLE)
+            cursor.execute(HOLDINGS_SNAPSHOTS_TABLE)
+            cursor.execute(POSITION_SNAPSHOTS_TABLE)
             cursor.execute(AUDIT_LOG_TABLE)
             cursor.execute(SYSTEM_CONFIG_TABLE)
             

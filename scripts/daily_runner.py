@@ -69,7 +69,12 @@ class DailyRunner:
             return False
     
     def log_to_database(self, log_type: str, message: str, details: str = None):
-        """Log event to database"""
+        """Log event to database.
+
+        Logging failures are caught and printed to stderr so they don't
+        crash the NAV update, but are visible in the Task Scheduler log
+        rather than silently swallowed.
+        """
         session = self.db.get_session()
         try:
             log = SystemLog(
@@ -80,8 +85,10 @@ class DailyRunner:
             )
             session.add(log)
             session.commit()
-        except:
-            pass  # Don't fail if logging fails
+        except Exception as e:
+            # Print to stderr so it shows in Task Scheduler logs
+            import sys as _sys
+            print(f"[WARN] Could not write to system_logs: {e}", file=_sys.stderr)
         finally:
             session.close()
     

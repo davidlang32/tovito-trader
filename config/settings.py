@@ -31,10 +31,21 @@ class Settings:
         self.DATABASE_PATH = os.getenv('DATABASE_PATH', 'data/tovito.db')
         self.ANALYTICS_DB_PATH = os.getenv('ANALYTICS_DB_PATH', 'analytics/analytics.db')
         
-        # Tradier
+        # Brokerage selection
+        # BROKERAGE_PROVIDERS: comma-separated list for combined NAV (e.g. "tradier,tastytrade")
+        # BROKERAGE_PROVIDER: single provider fallback for backwards compatibility
+        self.BROKERAGE_PROVIDERS = os.getenv('BROKERAGE_PROVIDERS', '')
+        self.BROKERAGE_PROVIDER = os.getenv('BROKERAGE_PROVIDER', 'tradier')
+
+        # Tradier (legacy — being migrated to TastyTrade)
         self.TRADIER_API_KEY = os.getenv('TRADIER_API_KEY')
         self.TRADIER_ACCOUNT_ID = os.getenv('TRADIER_ACCOUNT_ID')
         self.TRADIER_API_URL = os.getenv('TRADIER_API_URL', 'https://api.tradier.com/v1')
+
+        # TastyTrade (OAuth-based, SDK v12+)
+        self.TASTYTRADE_CLIENT_SECRET = os.getenv('TASTYTRADE_CLIENT_SECRET')
+        self.TASTYTRADE_REFRESH_TOKEN = os.getenv('TASTYTRADE_REFRESH_TOKEN')
+        self.TASTYTRADE_ACCOUNT_ID = os.getenv('TASTYTRADE_ACCOUNT_ID')
         
         # Email
         self.EMAIL_ENABLED = os.getenv('EMAIL_ENABLED', 'false').lower() == 'true'

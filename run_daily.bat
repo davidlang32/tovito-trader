@@ -18,20 +18,24 @@ echo ============================================================ >> logs\task_s
 echo Daily automation started at %date% %time% >> logs\task_scheduler.log
 echo Working directory: %cd% >> logs\task_scheduler.log
 
-REM Find Python - try multiple locations
+REM Find Python - try multiple locations (newest first)
 set PYTHON_EXE=
-if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python313\python.exe" (
-    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python313\python.exe
-) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python312\python.exe" (
-    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python312\python.exe
-) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python311\python.exe" (
-    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python311\python.exe
+if exist "C:\Python314\python.exe" (
+    set PYTHON_EXE=C:\Python314\python.exe
 ) else if exist "C:\Python313\python.exe" (
     set PYTHON_EXE=C:\Python313\python.exe
 ) else if exist "C:\Python312\python.exe" (
     set PYTHON_EXE=C:\Python312\python.exe
 ) else if exist "C:\Python311\python.exe" (
     set PYTHON_EXE=C:\Python311\python.exe
+) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python314\python.exe" (
+    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python314\python.exe
+) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python313\python.exe" (
+    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python313\python.exe
+) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python312\python.exe" (
+    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python312\python.exe
+) else if exist "C:\Users\dlang\AppData\Local\Programs\Python\Python311\python.exe" (
+    set PYTHON_EXE=C:\Users\dlang\AppData\Local\Programs\Python\Python311\python.exe
 ) else (
     REM Fall back to PATH
     where python >nul 2>&1
@@ -58,11 +62,11 @@ if not exist "scripts\daily_nav_enhanced.py" (
     exit /b 1
 )
 
-REM Run the daily NAV script
+REM Run the daily NAV script (capture both stdout and stderr to log)
 echo Running daily_nav_enhanced.py... >> logs\task_scheduler.log
 echo Running daily_nav_enhanced.py...
 echo.
-%PYTHON_EXE% scripts\daily_nav_enhanced.py
+%PYTHON_EXE% scripts\daily_nav_enhanced.py 2>> logs\task_scheduler.log
 set SCRIPT_ERROR=%errorlevel%
 
 REM Log result
@@ -73,6 +77,7 @@ if %SCRIPT_ERROR% equ 0 (
 ) else (
     echo ERROR: Script failed with error code %SCRIPT_ERROR% >> logs\task_scheduler.log
     echo ERROR: Script failed with error code %SCRIPT_ERROR%
+    echo Check logs\task_scheduler.log for Python traceback >> logs\task_scheduler.log
 )
 
 REM Log completion

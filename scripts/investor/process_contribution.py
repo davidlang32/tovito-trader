@@ -1,11 +1,20 @@
 """
 Process Contribution with Historical Date Support
 
+DEPRECATED: This script is maintained for backwards compatibility.
+For new contributions, use the fund flow workflow instead:
+    python scripts/investor/submit_fund_flow.py      # Submit request
+    python scripts/investor/match_fund_flow.py        # Match to brokerage ACH
+    python scripts/investor/process_fund_flow.py      # Execute share accounting
+
+The fund flow workflow provides full lifecycle tracking, brokerage ACH matching,
+and audit trail via the fund_flow_requests table.
+
 Allows backdating contributions to use historical NAV.
 
 Usage:
-    python scripts/process_contribution_historical.py
-    
+    python scripts/investor/process_contribution.py
+
 Features:
 - Enter transaction date (defaults to today)
 - Uses NAV from transaction date for share calculation

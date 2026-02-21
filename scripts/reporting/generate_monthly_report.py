@@ -17,21 +17,40 @@ from datetime import datetime
 import sys
 import os
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add scripts/ directory to path for imports (email_adapter.py lives there)
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Add project root to path for src/ imports (charts, brokerage)
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 # Try to import PDF library
 try:
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+    from reportlab.platypus import (
+        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak,
+        Image as RLImage
+    )
     from reportlab.lib import colors
     HAS_PDF = True
 except ImportError:
     HAS_PDF = False
     print("⚠️  reportlab not installed - will generate text reports only")
     print("   To enable PDF: pip install reportlab")
+
+# Try to import chart generation
+try:
+    from src.reporting.charts import (
+        generate_nav_chart,
+        generate_investor_value_chart,
+        generate_holdings_chart,
+    )
+    HAS_CHARTS = True
+except ImportError:
+    HAS_CHARTS = False
 
 # Try to import email service
 try:
@@ -144,6 +163,153 @@ def get_portfolio_allocation(cursor, investor_id, current_value, total_portfolio
     if total_portfolio_value > 0:
         return (current_value / total_portfolio_value) * 100
     return 0
+
+
+# ============================================================
+# CHART DATA QUERIES
+# ============================================================
+
+def get_nav_history_for_chart(cursor, max_days=365):
+    """
+    Get NAV history for the NAV time series chart.
+
+    Returns up to max_days of NAV records ordered by date.
+
+    Returns:
+        list of dicts: [{'date': 'YYYY-MM-DD', 'nav_per_share': float}, ...]
+    """
+    cursor.execute("""
+        SELECT date, nav_per_share
+        FROM daily_nav
+        ORDER BY date DESC
+        LIMIT ?
+    """, (max_days,))
+
+    rows = cursor.fetchall()
+    # Reverse to get chronological order
+    return [{'date': row[0], 'nav_per_share': row[1]} for row in reversed(rows)]
+
+
+def get_trade_counts_by_date(cursor, max_days=365):
+    """
+    Get daily trade counts for chart secondary Y-axis.
+
+    Only counts actual trades (category='Trade'), not ACH/dividends.
+
+    Returns:
+        list of dicts: [{'date': 'YYYY-MM-DD', 'trade_count': int}, ...]
+    """
+    try:
+        cursor.execute("""
+            SELECT date, COUNT(*) as trade_count
+            FROM trades
+            WHERE category = 'Trade'
+            GROUP BY date
+            ORDER BY date DESC
+            LIMIT ?
+        """, (max_days,))
+
+        rows = cursor.fetchall()
+        return [{'date': row[0], 'trade_count': row[1]} for row in reversed(rows)]
+    except Exception:
+        # Trades table may not exist yet if migration hasn't run
+        return []
+
+
+def get_investor_transaction_history(cursor, investor_id):
+    """
+    Get all transactions for an investor (for chart event markers
+    and share history reconstruction).
+
+    Returns:
+        list of dicts with 'date', 'transaction_type', 'amount', 'shares_transacted'
+    """
+    cursor.execute("""
+        SELECT date, transaction_type, amount, shares_transacted
+        FROM transactions
+        WHERE investor_id = ?
+        ORDER BY date
+    """, (investor_id,))
+
+    return [
+        {
+            'date': row[0],
+            'transaction_type': row[1],
+            'amount': row[2],
+            'shares_transacted': row[3],
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def get_current_positions(cursor):
+    """
+    Get current positions from the most recent holdings snapshot.
+
+    Falls back to empty list if no snapshots exist yet.
+
+    Returns:
+        list of dicts with position data for the holdings chart
+    """
+    try:
+        # Get the most recent snapshot date
+        cursor.execute("""
+            SELECT snapshot_id, date, source
+            FROM holdings_snapshots
+            ORDER BY date DESC, snapshot_id DESC
+            LIMIT 1
+        """)
+        latest = cursor.fetchone()
+
+        if not latest:
+            return []
+
+        latest_date = latest[1]
+
+        # Get all snapshots for this date (could be multiple brokerages)
+        cursor.execute("""
+            SELECT snapshot_id FROM holdings_snapshots
+            WHERE date = ?
+        """, (latest_date,))
+
+        snapshot_ids = [row[0] for row in cursor.fetchall()]
+
+        if not snapshot_ids:
+            return []
+
+        # Get all positions from these snapshots
+        placeholders = ','.join('?' * len(snapshot_ids))
+        cursor.execute(f"""
+            SELECT symbol, underlying_symbol, quantity, instrument_type,
+                   average_open_price, close_price, market_value,
+                   cost_basis, unrealized_pl, option_type, strike,
+                   expiration_date, multiplier
+            FROM position_snapshots
+            WHERE snapshot_id IN ({placeholders})
+        """, snapshot_ids)
+
+        return [
+            {
+                'symbol': row[0],
+                'underlying_symbol': row[1],
+                'quantity': row[2],
+                'instrument_type': row[3],
+                'average_open_price': row[4],
+                'close_price': row[5],
+                'market_value': row[6],
+                'cost_basis': row[7],
+                'unrealized_pl': row[8],
+                'option_type': row[9],
+                'strike': row[10],
+                'expiration_date': row[11],
+                'multiplier': row[12],
+            }
+            for row in cursor.fetchall()
+        ]
+
+    except Exception:
+        # Holdings tables may not exist yet
+        return []
 
 
 def generate_pdf_report(investor_info, nav_info, transactions, month, year, output_path):
@@ -359,16 +525,113 @@ def generate_pdf_report(investor_info, nav_info, transactions, month, year, outp
         textColor=colors.grey,
         alignment=1
     )
-    elements.append(Paragraph("Page 1", footer_style))
-    
-    # ===== PAGE 2 =====
+
+    # ===== CHART PAGES =====
+    # Generate charts and insert as new pages between summary and disclaimer.
+    # Gracefully skip if matplotlib is not installed or data is unavailable.
+    chart_files = []  # Track temp files for cleanup
+    page_num = 1
+
+    if HAS_CHARTS and HAS_PDF:
+        try:
+            # Fetch chart data using a separate connection
+            chart_conn = sqlite3.connect(get_database_path())
+            chart_cursor = chart_conn.cursor()
+
+            nav_history = get_nav_history_for_chart(chart_cursor)
+            trade_counts = get_trade_counts_by_date(chart_cursor)
+            investor_txns = get_investor_transaction_history(chart_cursor, investor_id)
+            positions = get_current_positions(chart_cursor)
+
+            chart_conn.close()
+
+            has_chart_data = bool(nav_history) or bool(positions)
+
+            if has_chart_data:
+                # ===== PAGE 2: Performance Charts =====
+                elements.append(PageBreak())
+                page_num += 1
+
+                elements.append(Paragraph("TOVITO TRADER", title_style))
+                elements.append(Paragraph("PERFORMANCE CHARTS", subtitle_style))
+                elements.append(Spacer(1, 0.2*inch))
+
+                # NAV Performance Chart
+                if nav_history:
+                    try:
+                        nav_chart_path = generate_nav_chart(
+                            nav_history,
+                            trade_counts=trade_counts if trade_counts else None,
+                        )
+                        chart_files.append(nav_chart_path)
+                        elements.append(RLImage(
+                            str(nav_chart_path),
+                            width=6.5*inch,
+                            height=3.5*inch,
+                        ))
+                        elements.append(Spacer(1, 0.2*inch))
+                    except Exception as e:
+                        elements.append(Paragraph(
+                            f"<i>NAV chart unavailable: {e}</i>",
+                            styles['Normal']
+                        ))
+
+                # Investor Account Value Chart
+                if nav_history and shares > 0:
+                    try:
+                        value_chart_path = generate_investor_value_chart(
+                            nav_history,
+                            investor_shares=shares,
+                            investor_transactions=investor_txns if investor_txns else None,
+                        )
+                        chart_files.append(value_chart_path)
+                        elements.append(RLImage(
+                            str(value_chart_path),
+                            width=6.5*inch,
+                            height=3.5*inch,
+                        ))
+                    except Exception as e:
+                        elements.append(Paragraph(
+                            f"<i>Account value chart unavailable: {e}</i>",
+                            styles['Normal']
+                        ))
+
+                # ===== PAGE 3: Holdings Chart (if positions exist) =====
+                if positions:
+                    elements.append(PageBreak())
+                    page_num += 1
+
+                    elements.append(Paragraph("TOVITO TRADER", title_style))
+                    elements.append(Paragraph("CURRENT HOLDINGS", subtitle_style))
+                    elements.append(Spacer(1, 0.2*inch))
+
+                    try:
+                        holdings_chart_path = generate_holdings_chart(positions)
+                        chart_files.append(holdings_chart_path)
+                        elements.append(RLImage(
+                            str(holdings_chart_path),
+                            width=6.5*inch,
+                            height=4.0*inch,
+                        ))
+                    except Exception as e:
+                        elements.append(Paragraph(
+                            f"<i>Holdings chart unavailable: {e}</i>",
+                            styles['Normal']
+                        ))
+
+        except Exception as e:
+            # Chart generation failed entirely — continue without charts
+            print(f"  Charts skipped: {e}")
+
+    # ===== FINAL PAGE: Disclaimer =====
     elements.append(PageBreak())
-    
+    page_num += 1
+
     elements.append(Paragraph("TOVITO TRADER", title_style))
     elements.append(Paragraph("MONTHLY ACCOUNT STATEMENT", subtitle_style))
     elements.append(Paragraph(f"Period: {month_name}", styles['Heading3']))
     elements.append(Spacer(1, 0.5*inch))
-    
+
     # Disclaimer
     disclaimer_style = ParagraphStyle(
         'Disclaimer',
@@ -377,24 +640,30 @@ def generate_pdf_report(investor_info, nav_info, transactions, month, year, outp
         leading=14,
         alignment=4  # Justify
     )
-    
+
     disclaimer_text = """
-    This statement is for informational purposes only. Returns shown are gross returns before taxes. 
-    Tax liability is estimated at 37% (federal income tax rate) and represents the amount that will be 
-    withheld from your account for tax remittance. No action is required from you for tax filing - all 
+    This statement is for informational purposes only. Returns shown are gross returns before taxes.
+    Tax liability is estimated at 37% (federal income tax rate) and represents the amount that will be
+    withheld from your account for tax remittance. No action is required from you for tax filing - all
     gains pass through to the fund manager's income and are reported on their tax return.
     """
-    
+
     elements.append(Paragraph(disclaimer_text, disclaimer_style))
     elements.append(Spacer(1, 0.5*inch))
-    
+
     # Report generation info
     elements.append(Paragraph(f"<b>Report generated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-    elements.append(Spacer(1, 0.3*inch))
-    elements.append(Paragraph("Page 2", footer_style))
-    
+
     # Build PDF
     doc.build(elements)
+
+    # Cleanup temporary chart files
+    for chart_file in chart_files:
+        try:
+            chart_file.unlink()
+        except Exception:
+            pass
+
     return output_path
 
 

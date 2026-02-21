@@ -50,11 +50,12 @@ HEALTHCHECK_WATCHDOG_URL = os.getenv('HEALTHCHECK_WATCHDOG_URL', '')  # Ping whe
 HEALTHCHECK_DAILY_NAV_URL = os.getenv('HEALTHCHECK_DAILY_NAV_URL', '')  # Ping when daily NAV confirmed OK
 
 # Email settings
+# Support both SMTP_USERNAME (standard) and SMTP_USER (legacy) env var names
 SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
 SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
-SMTP_USER = os.getenv('SMTP_USER', '')
+SMTP_USER = os.getenv('SMTP_USERNAME') or os.getenv('SMTP_USER', '')
 SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
-ALERT_EMAIL = os.getenv('ALERT_EMAIL', 'dlang32@gmail.com')
+ALERT_EMAIL = os.getenv('ALERT_EMAIL') or os.getenv('ADMIN_EMAIL', '')
 
 
 class WatchdogMonitor:

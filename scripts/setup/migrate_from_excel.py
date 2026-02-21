@@ -14,9 +14,11 @@ warnings.filterwarnings('ignore', category=DeprecationWarning)
 import sys
 import os
 from datetime import datetime, date
+from pathlib import Path
 
 # Add project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.database.models import Database, Investor, DailyNAV, Transaction, TaxEvent
 from src.utils.safe_logging import get_safe_logger

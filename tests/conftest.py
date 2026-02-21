@@ -149,7 +149,239 @@ def _create_test_schema(conn):
             details TEXT
         )
     """)
-    
+
+    # Trades table (with source tagging for multi-brokerage)
+    conn.execute("""
+        CREATE TABLE trades (
+            trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tradier_transaction_id TEXT,
+            brokerage_transaction_id TEXT,
+            source TEXT DEFAULT 'tradier',
+            date TEXT NOT NULL,
+            type TEXT,
+            status TEXT,
+            amount REAL NOT NULL,
+            commission REAL DEFAULT 0,
+            fees REAL DEFAULT 0,
+            symbol TEXT,
+            quantity REAL,
+            price REAL,
+            option_type TEXT,
+            strike REAL,
+            expiration_date TEXT,
+            trade_type TEXT,
+            description TEXT,
+            notes TEXT,
+            category TEXT,
+            subcategory TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            is_deleted INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+    # Holdings snapshots table (daily position snapshots)
+    conn.execute("""
+        CREATE TABLE holdings_snapshots (
+            snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            source TEXT NOT NULL,
+            snapshot_time TEXT NOT NULL,
+            total_positions INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(date, source)
+        )
+    """)
+
+    # Position snapshots table (individual positions per snapshot)
+    conn.execute("""
+        CREATE TABLE position_snapshots (
+            position_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL,
+            symbol TEXT NOT NULL,
+            underlying_symbol TEXT,
+            quantity REAL NOT NULL,
+            instrument_type TEXT,
+            average_open_price REAL,
+            close_price REAL,
+            market_value REAL,
+            cost_basis REAL,
+            unrealized_pl REAL,
+            option_type TEXT,
+            strike REAL,
+            expiration_date TEXT,
+            multiplier INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (snapshot_id) REFERENCES holdings_snapshots(snapshot_id)
+        )
+    """)
+
+    # Email logs table
+    conn.execute("""
+        CREATE TABLE email_logs (
+            email_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sent_at TEXT NOT NULL,
+            recipient TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            email_type TEXT NOT NULL,
+            status TEXT DEFAULT 'Sent',
+            error_message TEXT
+        )
+    """)
+
+    # Daily reconciliation table
+    conn.execute("""
+        CREATE TABLE daily_reconciliation (
+            date TEXT PRIMARY KEY,
+            tradier_balance REAL,
+            calculated_portfolio_value REAL,
+            difference REAL,
+            total_shares REAL,
+            nav_per_share REAL,
+            new_deposits REAL DEFAULT 0,
+            new_withdrawals REAL DEFAULT 0,
+            unallocated_deposits REAL DEFAULT 0,
+            status TEXT NOT NULL,
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+    # Brokerage transactions raw (ETL staging table)
+    conn.execute("""
+        CREATE TABLE brokerage_transactions_raw (
+            raw_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL,
+            brokerage_transaction_id TEXT NOT NULL,
+            raw_data TEXT NOT NULL,
+            transaction_date DATE NOT NULL,
+            transaction_type TEXT NOT NULL,
+            transaction_subtype TEXT,
+            symbol TEXT,
+            amount REAL,
+            description TEXT,
+            etl_status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (etl_status IN ('pending', 'transformed', 'skipped', 'error')),
+            etl_transformed_at TIMESTAMP,
+            etl_trade_id INTEGER,
+            etl_error TEXT,
+            ingested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source, brokerage_transaction_id)
+        )
+    """)
+
+    # Fund flow requests table
+    conn.execute("""
+        CREATE TABLE fund_flow_requests (
+            request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            investor_id TEXT NOT NULL,
+            flow_type TEXT NOT NULL CHECK (flow_type IN ('contribution', 'withdrawal')),
+            requested_amount REAL NOT NULL CHECK (requested_amount > 0),
+            request_date DATE NOT NULL,
+            request_method TEXT NOT NULL DEFAULT 'portal'
+                CHECK (request_method IN ('portal', 'email', 'verbal', 'admin', 'other')),
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'approved', 'awaiting_funds', 'matched',
+                                  'processed', 'rejected', 'cancelled')),
+            approved_by TEXT,
+            approved_date TIMESTAMP,
+            rejection_reason TEXT,
+            matched_trade_id INTEGER,
+            matched_raw_id INTEGER,
+            matched_date TIMESTAMP,
+            matched_by TEXT,
+            processed_date TIMESTAMP,
+            actual_amount REAL,
+            shares_transacted REAL,
+            nav_per_share REAL,
+            transaction_id INTEGER,
+            realized_gain REAL,
+            tax_withheld REAL DEFAULT 0,
+            net_proceeds REAL,
+            notes TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (investor_id) REFERENCES investors(id)
+        )
+    """)
+
+    # Investor profiles table
+    conn.execute("""
+        CREATE TABLE investor_profiles (
+            profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            investor_id TEXT NOT NULL UNIQUE,
+            full_legal_name TEXT,
+            home_address_line1 TEXT,
+            home_address_line2 TEXT,
+            home_city TEXT,
+            home_state TEXT,
+            home_zip TEXT,
+            home_country TEXT DEFAULT 'US',
+            mailing_same_as_home INTEGER DEFAULT 1,
+            mailing_address_line1 TEXT,
+            mailing_address_line2 TEXT,
+            mailing_city TEXT,
+            mailing_state TEXT,
+            mailing_zip TEXT,
+            mailing_country TEXT,
+            email_primary TEXT,
+            phone_mobile TEXT,
+            phone_home TEXT,
+            phone_work TEXT,
+            date_of_birth TEXT,
+            marital_status TEXT,
+            num_dependents INTEGER DEFAULT 0,
+            citizenship TEXT DEFAULT 'US',
+            employment_status TEXT,
+            occupation TEXT,
+            job_title TEXT,
+            employer_name TEXT,
+            employer_address TEXT,
+            ssn_encrypted TEXT,
+            tax_id_encrypted TEXT,
+            bank_routing_encrypted TEXT,
+            bank_account_encrypted TEXT,
+            bank_name TEXT,
+            bank_account_type TEXT,
+            is_accredited INTEGER DEFAULT 0,
+            accreditation_method TEXT,
+            accreditation_verified_date DATE,
+            accreditation_expires_date DATE,
+            accreditation_docs_on_file INTEGER DEFAULT 0,
+            communication_preference TEXT DEFAULT 'email',
+            statement_delivery TEXT DEFAULT 'electronic',
+            profile_completed INTEGER DEFAULT 0,
+            last_verified_date DATE,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (investor_id) REFERENCES investors(id)
+        )
+    """)
+
+    # Referrals table
+    conn.execute("""
+        CREATE TABLE referrals (
+            referral_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            referrer_investor_id TEXT NOT NULL,
+            referral_code TEXT NOT NULL UNIQUE,
+            referred_name TEXT,
+            referred_email TEXT,
+            referred_date DATE NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'contacted', 'onboarded', 'expired', 'declined')),
+            converted_investor_id TEXT,
+            converted_date DATE,
+            incentive_type TEXT,
+            incentive_amount REAL,
+            incentive_paid INTEGER DEFAULT 0,
+            incentive_paid_date DATE,
+            notes TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (referrer_investor_id) REFERENCES investors(id)
+        )
+    """)
+
     conn.commit()
 
 
@@ -223,6 +455,103 @@ def mock_tradier_api(monkeypatch):
             self.balance = amount
     
     mock_api = MockTradierAPI()
+    return mock_api
+
+
+@pytest.fixture
+def mock_brokerage_api(monkeypatch):
+    """
+    Mock brokerage API for NAV pipeline testing.
+
+    Works with any brokerage provider (Tradier, TastyTrade, etc.).
+    Implements the BrokerageClient protocol interface.
+    """
+    class MockBrokerageAPI:
+        def __init__(self):
+            self.balance = 40000.00
+            self.api_called = False
+
+        def get_account_balance(self):
+            self.api_called = True
+            return {
+                'total_equity': self.balance,
+                'total_cash': self.balance * 0.3,
+                'option_long_value': 0.0,
+                'option_short_value': 0.0,
+                'stock_long_value': self.balance * 0.7,
+                'timestamp': datetime.now(),
+                'source': 'mock'
+            }
+
+        def get_positions(self):
+            return [
+                {
+                    'symbol': 'AAPL',
+                    'quantity': 100,
+                    'instrument_type': 'Equity',
+                    'underlying_symbol': 'AAPL',
+                    'average_open_price': 150.00,
+                    'close_price': 175.00,
+                    'multiplier': 1,
+                    'quantity_direction': 'Long',
+                },
+                {
+                    'symbol': 'SPY 250321C500',
+                    'quantity': 5,
+                    'instrument_type': 'Equity Option',
+                    'underlying_symbol': 'SPY',
+                    'average_open_price': 3.50,
+                    'close_price': 5.20,
+                    'multiplier': 100,
+                    'quantity_direction': 'Long',
+                },
+            ]
+
+        def get_transactions(self, start_date=None, end_date=None):
+            return [
+                {
+                    'date': '2026-01-15',
+                    'transaction_type': 'buy',
+                    'symbol': 'AAPL',
+                    'quantity': 100,
+                    'price': 150.00,
+                    'amount': -15000.00,
+                    'commission': 0.0,
+                    'fees': 0.0,
+                    'option_type': None,
+                    'strike': None,
+                    'expiration_date': None,
+                    'description': 'Bought 100 AAPL',
+                    'brokerage_transaction_id': 'MOCK-001',
+                    'category': 'Trade',
+                    'subcategory': 'Stock Buy',
+                },
+                {
+                    'date': '2026-01-16',
+                    'transaction_type': 'sell_to_close',
+                    'symbol': 'SPY 250321C500',
+                    'quantity': 5,
+                    'price': 5.20,
+                    'amount': 2600.00,
+                    'commission': 0.50,
+                    'fees': 0.13,
+                    'option_type': 'call',
+                    'strike': 500.0,
+                    'expiration_date': '2025-03-21',
+                    'description': 'Sold 5 SPY call options',
+                    'brokerage_transaction_id': 'MOCK-002',
+                    'category': 'Trade',
+                    'subcategory': 'Option Call',
+                },
+            ]
+
+        def is_market_open(self):
+            return True
+
+        def set_balance(self, amount):
+            self.balance = amount
+
+    mock_api = MockBrokerageAPI()
     return mock_api
 
 

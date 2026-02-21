@@ -1,6 +1,15 @@
 """
 Process Withdrawal (Enhanced) - With Manual Approval & Tax Calculation
 
+DEPRECATED: This script is maintained for backwards compatibility.
+For new withdrawals, use the fund flow workflow instead:
+    python scripts/investor/submit_fund_flow.py      # Submit request
+    python scripts/investor/match_fund_flow.py        # Match to brokerage ACH
+    python scripts/investor/process_fund_flow.py      # Execute share accounting
+
+The fund flow workflow provides full lifecycle tracking, brokerage ACH matching,
+and audit trail via the fund_flow_requests table.
+
 Complete withdrawal processing with:
 - Manual approval workflow
 - Tax calculation (37% on realized gains)
@@ -8,8 +17,8 @@ Complete withdrawal processing with:
 - Database logging
 
 Usage:
-    python scripts/process_withdrawal_enhanced.py
-    python scripts/process_withdrawal_enhanced.py --request-id 5
+    python scripts/investor/process_withdrawal_enhanced.py
+    python scripts/investor/process_withdrawal_enhanced.py --request-id 5
 """
 
 import warnings
