@@ -158,9 +158,11 @@ python scripts\investor\add_investor.py
 
 Follow the prompts to enter details.
 
-**Step 3:** Process initial contribution
+**Step 3:** Process initial contribution via fund flow workflow
 ```cmd
-python scripts\investor\process_contribution.py
+python scripts\investor\submit_fund_flow.py      # Submit request
+python scripts\investor\match_fund_flow.py        # Match to brokerage ACH
+python scripts\investor\process_fund_flow.py      # Execute share accounting
 ```
 
 **Step 4:** Set up portal access
@@ -194,43 +196,36 @@ python scripts\investor\close_investor_account.py --id INVESTOR_ID
 
 ## 4. Contributions
 
-### 4.1 Process a New Contribution
+### 4.1 Process a New Contribution (Fund Flow Workflow)
 
 **Prerequisites:**
 - Funds received and cleared in brokerage account
 - Current NAV calculated for today
 
-**Step 1:** Run contribution script
+**Step 1:** Submit contribution request
 ```cmd
-python scripts\investor\process_contribution.py
+python scripts\investor\submit_fund_flow.py
 ```
+Select investor, enter amount, choose "contribution" flow type.
 
-**Step 2:** Enter details when prompted:
-- Investor ID (e.g., 20260101-01A)
-- Amount (e.g., 5000)
-- Date (default: today)
-
-**Step 3:** Verify the calculation
+**Step 2:** Match to brokerage ACH deposit
+```cmd
+python scripts\investor\match_fund_flow.py
 ```
-============================================================
- CONTRIBUTION PREVIEW
-============================================================
- Investor: David Lang (20260101-01A)
- Amount: $5,000.00
- Current NAV: $1.1587
- Shares to Issue: 4,315.2846
- 
- Confirm? (y/n):
-```
+Links the fund flow request to the actual brokerage ACH transaction.
 
-**Step 4:** Confirm to process
+**Step 3:** Process share accounting
+```cmd
+python scripts\investor\process_fund_flow.py
+```
+Calculates shares at current NAV and updates all database tables.
 
 **What happens:**
-1. New shares calculated: Amount / Current NAV
-2. Investor's `current_shares` increased
-3. Investor's `net_investment` increased
-4. Transaction recorded in `transactions` table
-5. Total fund shares updated
+1. `fund_flow_requests` record tracks full lifecycle (pending → processed)
+2. New shares calculated: Amount / Current NAV
+3. Investor's `current_shares` and `net_investment` updated
+4. Transaction recorded in `transactions` table with `reference_id = 'ffr-{request_id}'`
+5. Linked to brokerage ACH via `matched_trade_id`
 
 ### 4.2 Assign Pending Contribution
 
@@ -250,73 +245,76 @@ python scripts\investor\assign_pending_contribution.py
 
 ## 5. Withdrawals
 
-### 5.1 Process a Withdrawal Request
+### 5.1 Process a Withdrawal (Fund Flow Workflow)
 
 **Step 1:** Investor submits request (via portal or email)
 
-**Step 2:** Check pending requests
+**Step 2:** Submit the withdrawal request
 ```cmd
-python scripts\investor\view_pending_withdrawals.py
+python scripts\investor\submit_fund_flow.py
+```
+Select investor, enter amount, choose "withdrawal" flow type.
+
+**Step 3:** Match to brokerage ACH transfer
+```cmd
+python scripts\investor\match_fund_flow.py
 ```
 
-**Step 3:** Calculate withdrawal details
+**Step 4:** Process share accounting
 ```cmd
-python scripts\investor\process_withdrawal_enhanced.py
+python scripts\investor\process_fund_flow.py
 ```
 
-**Step 4:** Enter details:
-- Investor ID
-- Amount requested
-- Date
-
-**Step 5:** Review tax calculation
+The preview shows realized gain (informational only — tax is settled quarterly):
 ```
 ============================================================
  WITHDRAWAL PREVIEW
 ============================================================
- Investor: David Lang (20260101-01A)
+ Investor ID: 20260101-01A
  Requested Amount: $5,000.00
- 
+
  CALCULATION:
  Current Shares: 18,432.6185
  Current NAV: $1.1587
  Shares to Redeem: 4,315.2846
- 
- TAX CALCULATION (Proportional Method):
+
+ TAX INFORMATION (Proportional Method):
  Cost Basis of Shares: $4,450.23
  Realized Gain: $549.77
- Tax (37%): $203.42
- 
- NET PROCEEDS: $4,796.58
- 
+ Tax: settled quarterly (no withholding at withdrawal)
+
+ NET PROCEEDS: $5,000.00 (full amount disbursed)
+
  Confirm? (y/n):
 ```
 
-**Step 6:** Confirm to process
-
-### 5.2 Withdrawal Tax Logic
+### 5.2 Withdrawal Tax Policy — Quarterly Settlement
 
 The system uses **proportional allocation** (average cost method):
 
 1. **Calculate shares to redeem:** Withdrawal Amount / Current NAV
 2. **Calculate cost basis:** (Shares Redeemed / Total Shares) × Net Investment
-3. **Calculate gain:** Redemption Value - Cost Basis
-4. **Calculate tax:** Gain × Tax Rate (37%)
-5. **Net proceeds:** Withdrawal Amount - Tax
+3. **Calculate realized gain:** Redemption Value - Cost Basis
+4. **Record realized gain:** Stored in `tax_events` for quarterly settlement
+5. **Net proceeds:** Full withdrawal amount (no withholding)
 
-### 5.3 Submit Withdrawal Request (for investors)
+Tax on realized gains is settled quarterly via `scripts/tax/quarterly_tax_payment.py`.
 
-```cmd
-python scripts\investor\submit_withdrawal_request.py
-```
+### 5.3 Eligible Withdrawal
+
+The API and monthly reports show an **eligible withdrawal** field:
+- `eligible_withdrawal = current_value - estimated_tax_liability`
+- `estimated_tax_liability = max(0, unrealized_gain) × 0.37`
+
+This shows investors how much they could receive if they liquidated their entire position.
 
 ### 5.4 Withdrawal Rules
 
 - Processed at **end of day NAV**
-- Tax withheld on realized gains
+- Tax settled quarterly (no withholding at withdrawal time)
 - Minimum withdrawal: $500 (configurable)
 - Partial withdrawals allowed
-- Full withdrawal = account closure
+- Full withdrawal = account closure (use `close_investor_account.py`)
 
 ---
 
@@ -363,13 +361,18 @@ python scripts\reporting\export_transactions_excel.py --start 2026-01-01 --end 2
 
 ## 7. Tax Handling
 
-### 7.1 Tax Rate Configuration
+### 7.1 Tax Policy — Quarterly Settlement
 
 Current tax rate: **37%** (highest marginal rate)
 
-To modify, update in:
-- `apps\investor_portal\api\config.py`
-- `scripts\investor\process_withdrawal_enhanced.py`
+**Policy:** Tax on realized gains from withdrawals is **not withheld at withdrawal time**. Instead, realized gains are tracked in the `tax_events` table and settled quarterly.
+
+- Investors receive the **full withdrawal amount** (no deduction)
+- Realized gains are recorded for quarterly tax settlement
+- Eligible withdrawal shown on monthly reports and portal
+
+To modify the tax rate, update in:
+- `apps\investor_portal\api\config.py` (TAX_RATE setting)
 
 ### 7.2 Quarterly Tax Payments
 
@@ -377,7 +380,7 @@ To modify, update in:
 python scripts\tax\quarterly_tax_payment.py
 ```
 
-Reviews accumulated tax withholdings and prepares estimated payment.
+Reviews accumulated realized gains from withdrawals and prepares estimated tax payment.
 
 ### 7.3 Year-End Tax Reconciliation
 
@@ -387,14 +390,14 @@ python scripts\tax\yearend_tax_reconciliation.py
 
 Generates:
 - Summary of all realized gains by investor
-- Tax withheld vs. actual liability
+- Quarterly payments vs. actual liability
 - K-1 preparation data
 
 ### 7.4 Tax Records
 
-All tax withholdings recorded in:
-- `transactions` table (individual events)
-- `tax_withholdings` table (summary by investor)
+All realized gains recorded in:
+- `tax_events` table (event_type: 'Realized_Gain', with tax_due = 0 at withdrawal)
+- `fund_flow_requests` table (realized_gain field on processed withdrawals)
 
 ---
 
@@ -617,7 +620,7 @@ Use **DB Browser for SQLite**:
 | `transactions` | All contributions and withdrawals |
 | `daily_nav` | Daily NAV history |
 | `investor_auth` | Portal authentication |
-| `withdrawal_requests` | Pending withdrawal requests |
+| `fund_flow_requests` | Contribution/withdrawal lifecycle tracking |
 | `positions` | Current portfolio positions |
 
 ### 11.5 Reverse a Transaction
@@ -648,12 +651,12 @@ Always:
 | Script | Purpose |
 |--------|---------|
 | `list_investors.py` | List all investors |
-| `process_contribution.py` | Process new contribution |
-| `process_withdrawal.py` | Process withdrawal |
-| `process_withdrawal_enhanced.py` | Withdrawal with tax calculation |
-| `submit_withdrawal_request.py` | Submit withdrawal request |
-| `view_pending_withdrawals.py` | View pending requests |
-| `close_investor_account.py` | Close an account |
+| `submit_fund_flow.py` | Submit contribution/withdrawal request |
+| `match_fund_flow.py` | Match request to brokerage ACH |
+| `process_fund_flow.py` | Execute share accounting |
+| `close_investor_account.py` | Close an account (uses fund flow) |
+| `manage_profile.py` | View/edit investor profiles |
+| `generate_referral_code.py` | Generate referral codes |
 
 ### Reporting Scripts (scripts\reporting\)
 
@@ -694,7 +697,7 @@ Always:
 
 - [ ] **4:05 PM** - NAV calculation runs (automated)
 - [ ] **4:10 PM** - Check healthcheck dashboard for confirmation
-- [ ] **End of day** - Review any pending withdrawal requests
+- [ ] **End of day** - Review any pending fund flow requests
 
 ### Weekly (Friday)
 

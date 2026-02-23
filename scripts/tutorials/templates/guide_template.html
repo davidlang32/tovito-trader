@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - Tovito Trader Tutorial</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .step-card { transition: transform 0.15s ease; }
+        .step-card:hover { transform: translateY(-1px); }
+        .step-number {
+            width: 2rem; height: 2rem;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 9999px; font-weight: 700; font-size: 0.875rem;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-blue-100 rounded-lg">
+                    <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="font-bold text-gray-900">Tovito Trader</h1>
+                    <p class="text-xs text-gray-500">Tutorial Guide</p>
+                </div>
+            </div>
+            <a href="/" class="text-blue-600 hover:text-blue-700 text-sm font-medium">&larr; Back to Portal</a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-4xl mx-auto px-4 py-8">
+        <!-- Title Section -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 mb-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-2">{{ title }}</h2>
+            <p class="text-gray-600">{{ description }}</p>
+            <div class="mt-4 flex items-center gap-4 text-sm text-gray-500">
+                <span class="flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                    </svg>
+                    {{ total_steps }} steps
+                </span>
+            </div>
+        </div>
+
+        <!-- Steps -->
+        {% for step in steps %}
+        <div class="step-card bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+            <div class="flex items-start gap-4 mb-4">
+                <div class="step-number bg-blue-100 text-blue-700">{{ step.number }}</div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900">{{ step.title }}</h3>
+                    <p class="text-gray-600 mt-1">{{ step.description }}</p>
+                </div>
+            </div>
+            {% if step.screenshot_data %}
+            <div class="mt-4 rounded-lg overflow-hidden border border-gray-200">
+                <img src="{{ step.screenshot_data }}" alt="Step {{ step.number }}: {{ step.title }}"
+                     class="w-full h-auto" loading="lazy" />
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        <!-- Footer -->
+        <div class="text-center py-8 text-sm text-gray-400">
+            &copy; 2026 Tovito Trader. Generated tutorial guide.
+        </div>
+    </main>
+</body>
+</html>

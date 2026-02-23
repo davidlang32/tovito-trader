@@ -116,21 +116,25 @@ class MessageResponse(BaseModel):
 def send_verification_email(email: str, name: str, token: str):
     """Send verification email (runs in background)"""
     try:
-        # Import the email service from the project
-        from scripts.email.email_service import send_email
-        
-        # Build verification URL (would be your portal URL in production)
-        # For local dev, just log the token
-        verify_url = f"http://localhost:3000/verify?token={token}"
-        
+        from src.automation.email_service import send_email
+        from ..config import settings
+
+        verify_url = f"{settings.PORTAL_BASE_URL}/verify?token={token}"
+
         subject = "Tovito Trader - Set Up Your Account"
-        body = f"""
+        message = f"""
 Hello {name},
 
-Welcome to the Tovito Trader Investor Portal!
+You've been added as an investor in the Tovito Trader fund. Click the link below to set up your secure portal access:
 
-Click the link below to set up your password:
 {verify_url}
+
+When you click the link, you'll be asked to create a password.
+
+Password requirements:
+- 8 to 72 characters
+- At least one uppercase letter, one lowercase letter
+- At least one number and one special character
 
 This link expires in 24 hours.
 
@@ -139,29 +143,35 @@ If you didn't request this, please ignore this email.
 Best regards,
 Tovito Trader
 """
-        
+
         send_email(
             to_email=email,
             subject=subject,
-            body=body
+            message=message,
+            email_type='Verification'
         )
-        print(f"✅ Verification email sent to {email}")
-        
+        print(f"[OK] Verification email sent to {email}")
+
     except Exception as e:
         # Log error but don't fail the request
-        print(f"⚠️ Failed to send verification email: {e}")
+        # Use ascii() fallback to avoid Windows cp1252 encoding crashes
+        try:
+            print(f"[WARN] Failed to send verification email: {e}")
+        except UnicodeEncodeError:
+            print(f"[WARN] Failed to send verification email: {ascii(str(e))}")
         print(f"   Token for {email}: {token}")
 
 
 def send_reset_email(email: str, name: str, token: str):
     """Send password reset email (runs in background)"""
     try:
-        from scripts.email.email_service import send_email
-        
-        reset_url = f"http://localhost:3000/reset-password?token={token}"
-        
+        from src.automation.email_service import send_email
+        from ..config import settings
+
+        reset_url = f"{settings.PORTAL_BASE_URL}/reset-password?token={token}"
+
         subject = "Tovito Trader - Password Reset"
-        body = f"""
+        message = f"""
 Hello {name},
 
 You requested a password reset for your Tovito Trader account.
@@ -176,16 +186,21 @@ If you didn't request this, please ignore this email.
 Best regards,
 Tovito Trader
 """
-        
+
         send_email(
             to_email=email,
             subject=subject,
-            body=body
+            message=message,
+            email_type='PasswordReset'
         )
-        print(f"✅ Password reset email sent to {email}")
-        
+        print(f"[OK] Password reset email sent to {email}")
+
     except Exception as e:
-        print(f"⚠️ Failed to send reset email: {e}")
+        # Use ascii() fallback to avoid Windows cp1252 encoding crashes
+        try:
+            print(f"[WARN] Failed to send reset email: {e}")
+        except UnicodeEncodeError:
+            print(f"[WARN] Failed to send reset email: {ascii(str(e))}")
         print(f"   Token for {email}: {token}")
 
 
@@ -202,19 +217,21 @@ async def initiate_setup(request: InitiateRequest, background_tasks: BackgroundT
     Sends a verification email with a link to set password.
     """
     success, message, data = initiate_verification(request.email)
-    
+
     if not success:
-        # Check if they should use normal login
+        # Reveal "already set up" since login form would expose this anyway
         if "already set up" in message.lower():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Account already set up. Please use the login form."
             )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=message
+        # For "not found" and "not active" — return generic success
+        # to prevent email enumeration attacks
+        return InitiateResponse(
+            message="If that email is registered, you'll receive a setup link. The link expires in 24 hours.",
+            email_sent=True
         )
-    
+
     # Send email in background
     if data:
         background_tasks.add_task(
@@ -223,9 +240,9 @@ async def initiate_setup(request: InitiateRequest, background_tasks: BackgroundT
             data["name"],
             data["token"]
         )
-    
+
     return InitiateResponse(
-        message="Check your email for a verification link.",
+        message="If that email is registered, you'll receive a setup link. The link expires in 24 hours.",
         email_sent=True
     )
 

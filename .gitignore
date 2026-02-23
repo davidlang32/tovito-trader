@@ -26,11 +26,28 @@ data/backups/
 data/reports/
 data/exports/
 
+# Generated chart previews
+data/benchmark_chart_*.png
+
+# Generated tutorials (videos, guides, screenshots)
+data/tutorials/
+apps/investor_portal/frontend/investor_portal/public/tutorials/
+
+# Generated mind map outputs
+data/mindmap/
+
 # Analytics databases
 analytics/*.db
 
 # Logs
 logs/
+
+# Claude Code session files
+.claude/
+
+# Build output
+dist/
+apps/investor_portal/frontend/investor_portal/dist/
 
 # IDE
 .vscode/

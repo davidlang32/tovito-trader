@@ -8,7 +8,7 @@ Integrates with existing email_service.py
 import os
 import json
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Callable
 from pathlib import Path
 
@@ -86,8 +86,8 @@ class DiscordNotifier:
     }
     
     def __init__(self, webhook_url: str = None, enabled: bool = True):
-        self.webhook_url = webhook_url
-        self.enabled = enabled and HAS_REQUESTS and bool(webhook_url)
+        self.webhook_url = webhook_url or os.getenv("DISCORD_ALERTS_WEBHOOK_URL", "")
+        self.enabled = enabled and HAS_REQUESTS and bool(self.webhook_url)
     
     def send(self, title: str, message: str, priority: str = 'medium', 
              fields: dict = None, mention_everyone: bool = False):
@@ -101,7 +101,7 @@ class DiscordNotifier:
             'title': title,
             'description': message,
             'color': color,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(tz=timezone.utc).isoformat(),
             'footer': {'text': 'Tovito Trader Alert System'}
         }
         

@@ -56,7 +56,7 @@ def get_processable_requests(conn, request_id=None):
 
 def get_nav_for_date(conn, target_date):
     """
-    Get NAV per share for a specific date.
+    Get NAV per share for a specific date (4 decimal places).
     Falls back to most recent NAV before that date.
     """
     # Try exact date first
@@ -66,7 +66,7 @@ def get_nav_for_date(conn, target_date):
     )
     row = cursor.fetchone()
     if row:
-        return Decimal(str(row[0]))
+        return Decimal(str(round(row[0], 4)))
 
     # Fall back to most recent before that date
     cursor = conn.execute(
@@ -75,7 +75,7 @@ def get_nav_for_date(conn, target_date):
     )
     row = cursor.fetchone()
     if row:
-        return Decimal(str(row[0]))
+        return Decimal(str(round(row[0], 4)))
 
     # Last resort: most recent NAV
     cursor = conn.execute(
@@ -83,7 +83,7 @@ def get_nav_for_date(conn, target_date):
     )
     row = cursor.fetchone()
     if row:
-        return Decimal(str(row[0]))
+        return Decimal(str(round(row[0], 4)))
 
     return None
 
@@ -153,7 +153,10 @@ def process_withdrawal(conn, req, nav_per_share):
     """
     Execute share accounting for a withdrawal.
 
-    Uses proportional gain allocation and 37% tax withholding.
+    Uses proportional gain allocation. Tax is NOT withheld at withdrawal —
+    it is settled quarterly via scripts/tax/quarterly_tax_payment.py.
+    Realized gains are still calculated and recorded for tax reporting.
+
     Returns dict with processing details.
     """
     investor_id = req['investor_id']
@@ -173,14 +176,15 @@ def process_withdrawal(conn, req, nav_per_share):
     # Calculate shares to sell
     shares_to_sell = (amount / nav_per_share).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
 
-    # Proportional gain calculation
+    # Proportional gain calculation (for tax reporting — not withheld)
     proportion = amount / current_value if current_value > 0 else Decimal('0')
     total_unrealized_gain = max(Decimal('0'), current_value - net_investment)
     realized_gain = (total_unrealized_gain * proportion).quantize(
         Decimal('0.01'), rounding=ROUND_HALF_UP
     )
-    tax_due = (realized_gain * TAX_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-    net_proceeds = amount - tax_due
+
+    # No tax withholding — full amount disbursed, tax settled quarterly
+    net_proceeds = amount
 
     new_shares = current_shares - shares_to_sell
     cost_basis_sold = (net_investment * proportion).quantize(
@@ -210,21 +214,21 @@ def process_withdrawal(conn, req, nav_per_share):
     ))
     transaction_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-    # Record tax event
+    # Record realized gain as tax event (for quarterly tax settlement)
     if realized_gain > 0:
         conn.execute("""
             INSERT INTO tax_events (
                 date, investor_id, event_type, withdrawal_amount,
                 realized_gain, tax_rate, tax_due, net_proceeds,
                 reference_id, created_at, updated_at
-            ) VALUES (?, ?, 'Tax_Withheld', ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, 'Realized_Gain', ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             request_date,
             investor_id,
             float(amount),
             float(realized_gain),
             float(TAX_RATE),
-            float(tax_due),
+            0.0,  # No tax withheld — settled quarterly
             float(net_proceeds),
             f"ffr-{req['request_id']}",
             now, now,
@@ -247,7 +251,7 @@ def process_withdrawal(conn, req, nav_per_share):
         'new_total_shares': float(new_shares),
         'new_net_investment': float(new_net_investment),
         'realized_gain': float(realized_gain),
-        'tax_withheld': float(tax_due),
+        'tax_withheld': 0.0,
         'net_proceeds': float(net_proceeds),
     }
 
@@ -282,14 +286,15 @@ Withdrawal Confirmation
 ========================
 
 Investor: {investor_name}
-Gross Amount: ${result['amount']:,.2f}
+Withdrawal Amount: ${result['amount']:,.2f}
 NAV/Share: ${result['nav_per_share']:,.4f}
 Shares Sold: {result['shares_transacted']:,.4f}
 
-Tax Breakdown:
-  Realized Gain: ${result['realized_gain']:,.2f}
-  Tax Withheld (37%): ${result['tax_withheld']:,.2f}
-  Net Proceeds: ${result['net_proceeds']:,.2f}
+Realized Gain: ${result['realized_gain']:,.2f}
+Amount Disbursed: ${result['net_proceeds']:,.2f}
+
+Note: Tax on realized gains is settled quarterly.
+No tax has been withheld from this withdrawal.
 
 Remaining Shares: {result['new_total_shares']:,.4f}
 """
@@ -413,13 +418,10 @@ def process_flow():
             proportion = amount / current_value if current_value > 0 else Decimal('0')
             unrealized = max(Decimal('0'), current_value - net_investment)
             realized = (unrealized * proportion).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            tax = (realized * TAX_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            net = amount - tax
 
             print(f"  Shares to Sell:  {float(shares_to_sell):,.4f}")
-            print(f"  Realized Gain:   ${float(realized):,.2f}")
-            print(f"  Tax (37%):       ${float(tax):,.2f}")
-            print(f"  Net Proceeds:    ${float(net):,.2f}")
+            print(f"  Realized Gain:   ${float(realized):,.2f} (tax settled quarterly)")
+            print(f"  Amount Disbursed: ${float(amount):,.2f} (full amount, no withholding)")
             print(f"  Remaining:       {float(current_shares - shares_to_sell):,.4f} shares")
 
         print("-" * 60)
@@ -491,9 +493,8 @@ def process_flow():
         print(f"  NAV/Share:     ${result['nav_per_share']:,.4f}")
         print(f"  Shares:        {result['shares_transacted']:,.4f}")
         if flow_type == 'withdrawal':
-            print(f"  Realized Gain: ${result['realized_gain']:,.2f}")
-            print(f"  Tax Withheld:  ${result['tax_withheld']:,.2f}")
-            print(f"  Net Proceeds:  ${result['net_proceeds']:,.2f}")
+            print(f"  Realized Gain: ${result['realized_gain']:,.2f} (tax settled quarterly)")
+            print(f"  Disbursed:     ${result['net_proceeds']:,.2f} (full amount)")
         print(f"  New Shares:    {result['new_total_shares']:,.4f}")
         print()
 

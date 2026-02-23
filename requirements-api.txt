@@ -1,0 +1,30 @@
+# Tovito Trader - Investor Portal API Dependencies
+# Minimal set for Railway deployment
+# Install: pip install -r requirements-api.txt
+
+# Core API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+email-validator>=2.1.0
+python-multipart>=0.0.6
+
+# Auth
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Charts & reports (used by /nav and /reports endpoints)
+matplotlib>=3.8.0
+reportlab>=4.0.0
+yfinance>=1.2.0
+pandas>=2.0.0
+
+# Encryption (investor profiles PII)
+cryptography>=42.0.0
+
+# Environment
+python-dotenv>=1.0.0

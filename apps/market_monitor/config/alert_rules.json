@@ -33,7 +33,7 @@
     "sound": true,
     "visual": true,
     "email": true,
-    "discord": false,
+    "discord": true,
     "discord_webhook": ""
   },
   

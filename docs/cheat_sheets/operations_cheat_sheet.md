@@ -28,31 +28,21 @@ python scripts/daily_nav_enhanced.py
 
 ## INVESTOR MANAGEMENT
 
-### Contributions
+### Fund Flow Workflow (Contributions & Withdrawals)
 
 ```powershell
-# Standard contribution (uses current NAV)
-python scripts/investor/process_contribution.py
+# Step 1: Submit contribution or withdrawal request
+python scripts/investor/submit_fund_flow.py
 
-# Backdated contribution (uses historical NAV)
-python scripts/archive/process_contribution_historical.py
+# Step 2: Match to brokerage ACH transaction
+python scripts/investor/match_fund_flow.py
+
+# Step 3: Execute share accounting
+python scripts/investor/process_fund_flow.py
 ```
 
-### Withdrawals
-
-```powershell
-# Log a withdrawal request (requires approval)
-python scripts/investor/request_withdrawal.py --investor 20260101-01A --amount 5000
-
-# View pending requests
-python scripts/investor/view_pending_withdrawals.py
-
-# Process approved withdrawal (with 37% tax withholding)
-python scripts/investor/process_withdrawal_enhanced.py --request-id 5
-
-# Simple withdrawal (no approval workflow)
-python scripts/investor/process_withdrawal.py
-```
+> **Tax policy:** Withdrawals disburse the full amount. Realized gains are tracked
+> and tax is settled quarterly via `scripts/tax/quarterly_tax_payment.py`.
 
 ### Account Management
 

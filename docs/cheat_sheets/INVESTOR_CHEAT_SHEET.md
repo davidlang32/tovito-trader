@@ -1,103 +1,77 @@
-# 02_INVESTOR - INVESTOR MANAGEMENT CHEAT SHEET
+# INVESTOR MANAGEMENT CHEAT SHEET
 ## All Investor Operations & Transactions
 
 ---
 
 ## 📁 WHAT'S IN THIS FOLDER
 
-**10 Scripts for managing investor accounts and transactions**
+**Scripts for managing investor accounts, contributions, and withdrawals via the fund flow workflow.**
 
 ---
 
-## 💰 CORE TRANSACTIONS (Most Used)
+## 💰 FUND FLOW WORKFLOW (Contributions & Withdrawals)
 
-### **Process Contribution** ⭐
-**File:** `process_contribution.py`  
-**Purpose:** Record investor deposits
+All contributions and withdrawals use the **fund flow lifecycle**: submit -> match -> process.
+
+### **Step 1: Submit Request** ⭐
+**File:** `submit_fund_flow.py`
+**Purpose:** Submit a new contribution or withdrawal request
 
 ```cmd
-python scripts\02_investor\process_contribution.py
+python scripts\investor\submit_fund_flow.py
 ```
-
-**When:** Investor adds money (ACH received)
 
 **Prompts:**
-1. Select investor (1-5)
-2. Enter amount
-3. Confirm
+1. Select investor
+2. Choose flow type (contribution/withdrawal)
+3. Enter amount
+4. Confirm
 
-**Updates:**
-- Investor shares
-- Daily NAV
-- Transactions table
-
-**Example:**
-```
-Ken contributes $1,000
-→ Calculates shares at current NAV ($1.05)
-→ Ken receives 952.38 shares
-→ Updates position
-```
+**Creates:** `fund_flow_requests` record with status "pending"
 
 ---
 
-### **Process Withdrawal** ⭐
-**File:** `process_withdrawal.py`  
-**Purpose:** Record withdrawals with tax calculations
+### **Step 2: Match to Brokerage ACH** ⭐
+**File:** `match_fund_flow.py`
+**Purpose:** Link request to brokerage ACH transaction
 
 ```cmd
-python scripts\02_investor\process_withdrawal.py
+python scripts\investor\match_fund_flow.py
 ```
 
-**When:** Investor wants to take money out
-
-**Shows:**
-- Current position
-- Unrealized gains
-- Tax liability (37%)
-- After-tax value
-
-**Calculates:**
-- Realized gains
-- Tax due
-- Net proceeds
-
-**Example:**
-```
-Beth withdraws $5,000
-→ Shows tax breakdown
-→ Realized gain: $1,200
-→ Tax due: $444
-→ Net proceeds: $4,556
-```
+**Links:** fund_flow_request -> brokerage_transactions_raw (ACH deposit/withdrawal)
 
 ---
 
-### **Enhanced Withdrawal**
-**File:** `process_withdrawal_enhanced.py`  
-**Purpose:** Withdrawal with additional features
+### **Step 3: Process Share Accounting** ⭐
+**File:** `process_fund_flow.py`
+**Purpose:** Execute share accounting and finalize
 
 ```cmd
-python scripts\02_investor\process_withdrawal_enhanced.py
+python scripts\investor\process_fund_flow.py
 ```
 
-**Extra features:**
-- More detailed tax breakdown
-- Additional validation
-- Enhanced reporting
+**For contributions:**
+- Calculates shares at current NAV
+- Updates investor shares and net_investment
+- Records transaction with reference_id linkage
 
-**Use:** When you need extra detail/validation
+**For withdrawals:**
+- Calculates shares to redeem (proportional method)
+- Records realized gain (for quarterly tax settlement)
+- Disburses full amount (no tax withheld)
+- Sends confirmation email
 
 ---
 
 ## 👥 INVESTOR INFORMATION
 
 ### **List Investors** ⭐
-**File:** `list_investors.py`  
+**File:** `list_investors.py`
 **Purpose:** View all investor positions
 
 ```cmd
-python scripts\02_investor\list_investors.py
+python scripts\investor\list_investors.py
 ```
 
 **Shows:**
@@ -108,119 +82,42 @@ python scripts\02_investor\list_investors.py
 - Returns (% and $)
 - % of portfolio
 
-**Example output:**
-```
-Investor 1 (20260101-01A)
-  Shares: 15,000.0000
-  Investment: $15,000.00
-  Value: $18,750.00
-  Return: +25.00%
-```
-
 ---
 
 ### **Close Account**
-**File:** `close_investor_account.py`  
+**File:** `close_investor_account.py`
 **Purpose:** Complete account closure (100% withdrawal)
 
 ```cmd
-python scripts\02_investor\close_investor_account.py
+python scripts\investor\close_investor_account.py --id INVESTOR_ID
 ```
 
 **When:** Investor leaving completely
 
 **Process:**
-1. Calculates full withdrawal
-2. Computes final taxes
-3. Processes complete payout
-4. Sets status to inactive
+1. Creates fund_flow_request for full withdrawal
+2. Calculates realized gain (recorded for quarterly tax)
+3. Disburses full value (no tax withholding)
+4. Sets investor status to inactive
+5. Sends confirmation email
 
 ---
 
-## 📋 WITHDRAWAL REQUEST WORKFLOW
-
-### **1. Request Withdrawal**
-**File:** `request_withdrawal.py`
-
-```cmd
-python scripts\02_investor\request_withdrawal.py
-```
-
-**Purpose:** Investor submits withdrawal request
-
-**Creates:** Pending withdrawal request in database
-
----
-
-### **2. View Pending Withdrawals** ⭐
-**File:** `view_pending_withdrawals.py`
-
-```cmd
-python scripts\02_investor\view_pending_withdrawals.py
-```
-
-**Purpose:** See all pending withdrawal requests
-
-**Shows:**
-- Request date
-- Investor
-- Amount requested
-- Current status
-
----
-
-### **3. Check Pending Withdrawals**
-**File:** `check_pending_withdrawals.py`
-
-```cmd
-python scripts\02_investor\check_pending_withdrawals.py
-```
-
-**Purpose:** Check if any pending withdrawals exist
-
-**Returns:** Count and summary
-
----
-
-### **4. Submit Withdrawal Request**
-**File:** `submit_withdrawal_request.py`
-
-```cmd
-python scripts\02_investor\submit_withdrawal_request.py
-```
-
-**Purpose:** Process approved withdrawal request
-
-**Workflow:**
-1. Select pending request
-2. Review details
-3. Process withdrawal
-4. Mark as complete
-
----
-
-## 💵 CONTRIBUTION MANAGEMENT
+## 💵 OTHER INVESTOR SCRIPTS
 
 ### **Assign Pending Contribution**
 **File:** `assign_pending_contribution.py`
 
 ```cmd
-python scripts\02_investor\assign_pending_contribution.py
+python scripts\investor\assign_pending_contribution.py
 ```
 
 **Purpose:** Assign ACH deposit to specific investor(s)
 
-**When:** 
-- ACH received
-- Need to assign to investor(s)
-- Split deposits (Ken + Beth = 1 ACH)
-
-**Example:**
-```
-ACH deposit: $2,000
-→ Assign $1,000 to Ken
-→ Assign $1,000 to Beth
-→ Total matches ACH ✓
+### **Investor Profile Management**
+```cmd
+python scripts\investor\manage_profile.py         # View/edit profiles
+python scripts\investor\generate_referral_code.py  # Generate referral codes
 ```
 
 ---
@@ -229,65 +126,42 @@ ACH deposit: $2,000
 
 ### **New Investor Joins**
 ```cmd
-# 1. Money arrives (ACH in Tradier)
+# 1. Money arrives (ACH in brokerage)
 
-# 2. Record contribution
-python scripts\02_investor\process_contribution.py
+# 2. Submit contribution via fund flow
+python scripts\investor\submit_fund_flow.py
 
-# 3. Validate
-python scripts\05_validation\validate_with_ach.py
+# 3. Match to brokerage ACH
+python scripts\investor\match_fund_flow.py
 
-# 4. Backup
-python run.py backup
+# 4. Process share accounting
+python scripts\investor\process_fund_flow.py
+
+# 5. Validate
+python scripts\validation\validate_comprehensive.py
+
+# 6. Backup
+python scripts\utilities\backup_database.py
 ```
 
 ---
 
 ### **Investor Withdraws**
 ```cmd
-# 1. Process withdrawal
-python scripts\02_investor\process_withdrawal.py
+# 1. Submit withdrawal request
+python scripts\investor\submit_fund_flow.py
 
-# 2. Validate
-python scripts\05_validation\validate_with_ach.py
+# 2. Match to brokerage ACH
+python scripts\investor\match_fund_flow.py
 
-# 3. Send confirmation (shown in output)
-
-# 4. Backup
-python run.py backup
-```
-
----
-
-### **Withdrawal Request Process**
-```cmd
-# 1. Investor requests withdrawal
-python scripts\02_investor\request_withdrawal.py
-
-# 2. You review pending requests
-python scripts\02_investor\view_pending_withdrawals.py
-
-# 3. When ready, submit/process
-python scripts\02_investor\submit_withdrawal_request.py
+# 3. Process (full amount disbursed, tax settled quarterly)
+python scripts\investor\process_fund_flow.py
 
 # 4. Validate
-python scripts\05_validation\validate_with_ach.py
-```
+python scripts\validation\validate_comprehensive.py
 
----
-
-### **Split Deposit Assignment**
-```cmd
-# Scenario: $2,000 ACH = Ken $1K + Beth $1K
-
-# 1. Assign pending contribution
-python scripts\02_investor\assign_pending_contribution.py
-   → Assign $1,000 to Ken
-   → Assign $1,000 to Beth
-
-# 2. Validate ACH matches
-python scripts\05_validation\validate_with_ach.py
-   → Should show: $2,000 ACH = $2,000 investor txns ✓
+# 5. Backup
+python scripts\utilities\backup_database.py
 ```
 
 ---
@@ -296,44 +170,44 @@ python scripts\05_validation\validate_with_ach.py
 
 | Script | Use When | Frequency |
 |--------|----------|-----------|
-| process_contribution.py | Money received | As needed |
-| process_withdrawal.py | Investor withdrawing | As needed |
+| submit_fund_flow.py | Contribution or withdrawal | As needed |
+| match_fund_flow.py | Link to brokerage ACH | As needed |
+| process_fund_flow.py | Finalize transaction | As needed |
 | list_investors.py | Check positions | Weekly |
-| request_withdrawal.py | Investor requests out | As needed |
-| view_pending_withdrawals.py | Review requests | Weekly |
-| submit_withdrawal_request.py | Approve withdrawal | As needed |
-| assign_pending_contribution.py | Split deposits | As needed |
 | close_investor_account.py | Complete exit | Rare |
+| assign_pending_contribution.py | Split deposits | As needed |
+| manage_profile.py | Update investor info | As needed |
 
 ---
 
 ## ⚠️ IMPORTANT NOTES
 
 **Before contributions:**
-- ✅ Verify ACH deposit received in Tradier
-- ✅ Update Daily NAV first (get current share price)
-- ✅ Validate after processing
+- Verify ACH deposit received in brokerage
+- Update Daily NAV first (get current share price)
+- Validate after processing
 
 **Before withdrawals:**
-- ✅ Update Daily NAV first
-- ✅ Review tax impact with investor
-- ✅ Validate after processing
-- ✅ Backup database
+- Update Daily NAV first
+- Use /fund-flow/estimate API to preview (or process_fund_flow.py --preview)
+- Validate after processing
+- Backup database
 
-**Tax calculations:**
-- All withdrawals calculate 37% tax
-- Shows realized gains vs. cost basis
-- Net proceeds = Withdrawal - Tax
+**Tax policy (quarterly settlement):**
+- Withdrawals disburse the **full amount** (no withholding)
+- Realized gains are tracked in `tax_events` table
+- Tax settled quarterly via `scripts/tax/quarterly_tax_payment.py`
+- Monthly reports show "eligible withdrawal" (value after estimated tax)
 
 ---
 
 ## 🎯 BEST PRACTICES
 
 1. **Always update NAV first** before processing transactions
-2. **Validate immediately** after each transaction
-3. **Backup before major transactions** (large withdrawals, account closures)
-4. **Use withdrawal requests** for audit trail
-5. **Assign contributions** immediately when ACH received
+2. **Use fund flow workflow** for all contributions and withdrawals
+3. **Validate immediately** after each transaction
+4. **Backup before major transactions** (large withdrawals, account closures)
+5. **Match to ACH** to maintain complete audit trail
 
 ---
 
@@ -342,18 +216,18 @@ python scripts\05_validation\validate_with_ach.py
 **Contribution not matching shares:**
 - Check NAV was updated first
 - Verify share price calculation
-- Run validate_with_ach.py
+- Run validate_comprehensive.py
 
-**Withdrawal tax looks wrong:**
-- Check unrealized gains
-- Verify cost basis (net investment)
-- Tax = 37% of gain portion only
+**Withdrawal realized gain looks wrong:**
+- Check unrealized gains (proportional method)
+- Verify cost basis (net_investment)
+- Gain = 37% of gain portion, settled quarterly
 
-**ACH doesn't match contributions:**
-- Use assign_pending_contribution.py for splits
-- Validate with validate_with_ach.py
+**ACH doesn't match fund flow:**
+- Use match_fund_flow.py to link
+- Verify brokerage transaction was imported via ETL
 - Check dates match
 
 ---
 
-**Most used: process_contribution.py, process_withdrawal.py, list_investors.py** ⭐
+**Most used: submit_fund_flow.py, process_fund_flow.py, list_investors.py** ⭐

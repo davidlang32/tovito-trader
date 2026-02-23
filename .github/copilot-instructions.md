@@ -6,8 +6,8 @@
 
 ### Core Purpose
 - Calculate daily NAV from broker account data (Single Source of Truth in `daily_nav` table)
-- Manage investor contributions/withdrawals with proportional share accounting
-- Track realized gains and apply 37% tax withholding
+- Manage investor contributions/withdrawals via unified fund flow lifecycle (submit → match → process)
+- Track realized gains for quarterly tax settlement (no withholding at withdrawal)
 - REST API (FastAPI) + React frontend for investor portal
 - Real-time market monitoring and automation
 
@@ -36,7 +36,7 @@ fund_manager/            ← Admin dashboard (future)
 ### Data Flow: Daily NAV (Automated via Task Scheduler)
 ```
 1. scripts/daily_nav_enhanced.py runs after market close
-2. Syncs Tradier account positions → updates portfolio_value
+2. Syncs brokerage account positions (TastyTrade/Tradier) → updates portfolio_value
 3. Calculates: nav_per_share = portfolio_value / total_shares
 4. Writes to daily_nav table
 5. Writes heartbeat file (logs/daily_nav_heartbeat.txt) for monitoring
@@ -49,17 +49,17 @@ fund_manager/            ← Admin dashboard (future)
 - Shares: tracked per investor with transaction history
 - NAV per share: recalculated daily, used for all future transactions
 
-### Tax Withholding Specifics
+### Tax Policy: Quarterly Settlement
 **When is tax applied?**
-- **On Withdrawal**: Tax is calculated and withheld when investor withdraws funds
-- Formula: `proportion_withdrawn = withdrawal_amount / current_value` → `realized_gain = total_unrealized_gain × proportion_withdrawn` → `tax = realized_gain × TAX_RATE`
-- Tax recorded in `tax_events` table, linked to transaction
-- Net proceeds to investor = `withdrawal_amount - tax_withheld`
+- **At withdrawal**: Realized gains are calculated and recorded in `tax_events` table (event_type: 'Realized_Gain'), but **no tax is withheld**. The full withdrawal amount is disbursed to the investor.
+- **Quarterly**: Tax is settled via `scripts/tax/quarterly_tax_payment.py --quarter Q --year YYYY`
+- Formula: `proportion_withdrawn = withdrawal_amount / current_value` → `realized_gain = total_unrealized_gain × proportion_withdrawn`
+- Eligible withdrawal visibility: `eligible_withdrawal = current_value - (max(0, unrealized_gain) × 0.37)`
 
 **Share basis tracking:**
 - Each investor's shares represent proportional ownership
 - On contribution: `shares_purchased = amount / nav_per_share_at_date`
-- On withdrawal: shares are sold proportionally at current NAV, triggering any gains
+- On withdrawal: shares are sold proportionally at current NAV, realized gain recorded for quarterly settlement
 
 ---
 
@@ -102,8 +102,7 @@ python run.py nav              # Run daily NAV update
 python run.py validate         # 8-point data validation
 python run.py investors        # List all investors
 python run.py positions        # View current positions
-python run.py contribution     # Process contribution transaction
-python run.py withdrawal       # Process withdrawal
+python run.py fund-flow        # Fund flow workflow info
 python run.py health           # System health check
 python run.py test             # Run pytest suite
 ```
@@ -154,8 +153,9 @@ scripts/
     ├── monthly_statements.py  ← Generate investor statements
     └── [tax reports, etc]
   investor/
-    ├── contribution_processor.py
-    └── withdrawal_processor.py
+    ├── submit_fund_flow.py       # Step 1: Submit contribution/withdrawal request
+    ├── match_fund_flow.py        # Step 2: Match to brokerage ACH
+    └── process_fund_flow.py      # Step 3: Execute share accounting
 ```
 
 ### Script Conventions
@@ -267,47 +267,41 @@ async def get_holdings(current_user: CurrentUser = Depends(get_current_user)):
 
 ---
 
-## Withdrawal & Contribution Processing
+## Fund Flow Lifecycle (Contributions & Withdrawals)
 
-### Contribution Transaction Flow
+All contributions and withdrawals use the unified **fund flow lifecycle**: submit → match → process.
+
+### Step 1: Submit Request
 ```
-scripts/investor/process_contribution.py:
-  1. User/admin provides: investor_id, amount, [transaction_date]
-  2. Fetch NAV per share from daily_nav table for that date
-  3. Calculate shares: shares = amount / nav_per_share
-  4. Insert transaction row: type='Contribution', net_investment updated
-  5. Update investor.current_shares += shares
-  6. Log to audit_log for compliance
-  7. Optional: Send confirmation email
+scripts/investor/submit_fund_flow.py:
+  1. Select investor, choose flow type (contribution/withdrawal), enter amount
+  2. Creates fund_flow_requests record with status "pending"
 ```
 
-**Key Code Pattern:**
-```python
-# From process_contribution.py
-nav_per_share, _, _ = get_nav_for_date(conn, transaction_date)  # Allows backdating
-new_shares = amount / nav_per_share
-cursor.execute("""
-    INSERT INTO transactions 
-    (date, investor_id, transaction_type, amount, shares_transacted, nav_per_share)
-    VALUES (?, ?, 'Contribution', ?, ?, ?)
-""", (transaction_date, investor_id, amount, new_shares, nav_per_share))
+### Step 2: Match to Brokerage ACH
+```
+scripts/investor/match_fund_flow.py:
+  1. Links fund_flow_request to brokerage ACH transaction
+  2. Provides audit trail proving money movement
 ```
 
-### Withdrawal Transaction Flow (includes tax calculation)
+### Step 3: Process Share Accounting
 ```
-scripts/investor/process_withdrawal.py:
-  1. User provides: investor_id, withdrawal_amount, [transaction_date]
-  2. Fetch current holdings: current_value, unrealized_gain
-  3. Calculate proportion being withdrawn: proportion = amount / current_value
-  4. Calculate realized_gain = total_unrealized_gain × proportion
-  5. Calculate tax = realized_gain × TAX_RATE (from settings.TAX_RATE)
-  6. Create transaction: type='Withdrawal', shares_sold = amount / nav_per_share
-  7. Create tax_event: realized_gain, tax_amount, investor_id
-  8. Update investor.current_shares -= shares_sold
-  9. Send investor statement showing tax withheld
+scripts/investor/process_fund_flow.py:
+  For contributions:
+    1. Calculates shares at current NAV: shares = amount / nav_per_share
+    2. Updates investor shares and net_investment
+    3. Records transaction with reference_id = 'ffr-{request_id}'
+
+  For withdrawals:
+    1. Calculates shares to redeem (proportional method)
+    2. Records realized gain in tax_events (for quarterly settlement)
+    3. Disburses FULL amount (no tax withheld)
+    4. Updates investor shares and net_investment
+    5. Sends confirmation email
 ```
 
-**Important:** Withdrawals can be backdated (using historical NAV), useful for accounting corrections.
+**Important:** All transactions link back to fund_flow_requests via `reference_id = 'ffr-{request_id}'` for full audit trail.
 
 ---
 
@@ -464,54 +458,46 @@ from .routes import investor
 app.include_router(investor.router, prefix="/investor", tags=["Investor"])
 ```
 
-### Example 2: Process a Transaction with Tax
+### Example 2: Fund Flow Processing Pattern
 ```python
-# scripts/investor/process_withdrawal.py (simplified)
-def process_withdrawal(investor_id: str, amount: float, date: str):
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # Get holdings
-    cursor.execute(
-        "SELECT current_shares, net_investment FROM investors WHERE investor_id=?",
-        (investor_id,)
-    )
-    current_shares, net_investment = cursor.fetchone()
-    
-    # Get NAV for date
-    nav_per_share = get_nav_for_date(conn, date)
+# scripts/investor/process_fund_flow.py (simplified withdrawal flow)
+def process_withdrawal(conn, request_id, investor_id, amount, nav_per_share):
+    current_shares, net_investment = get_investor_holdings(conn, investor_id)
     current_value = current_shares * nav_per_share
-    
-    # Calculate gain
+
+    # Calculate proportional share redemption
+    shares_to_redeem = amount / nav_per_share
+
+    # Calculate realized gain (for quarterly tax settlement — NOT withheld)
     unrealized_gain = current_value - net_investment
     proportion = amount / current_value
     realized_gain = unrealized_gain * proportion
-    
-    # Calculate tax
-    tax_withheld = realized_gain * TAX_RATE
-    net_proceeds = amount - tax_withheld
-    
-    # Record transaction
-    cursor.execute("""
-        INSERT INTO transactions 
-        (date, investor_id, transaction_type, amount, shares_transacted, nav_per_share)
-        VALUES (?, ?, 'Withdrawal', ?, ?, ?)
-    """, (date, investor_id, amount, amount/nav_per_share, nav_per_share))
-    
-    # Record tax event
-    cursor.execute("""
-        INSERT INTO tax_events (investor_id, realized_gain, tax_amount, date)
-        VALUES (?, ?, ?, ?)
-    """, (investor_id, realized_gain, tax_withheld, date))
-    
-    # Update investor
-    cursor.execute(
-        "UPDATE investors SET current_shares = current_shares - ? WHERE investor_id = ?",
-        (amount / nav_per_share, investor_id)
-    )
-    
+
+    # Record transaction linked to fund flow request
+    conn.execute("""
+        INSERT INTO transactions
+        (date, investor_id, transaction_type, amount, shares_transacted,
+         nav_per_share, reference_id)
+        VALUES (?, ?, 'Withdrawal', ?, ?, ?, ?)
+    """, (date, investor_id, -amount, shares_to_redeem, nav_per_share,
+          f'ffr-{request_id}'))
+
+    # Record realized gain (no tax withheld — settled quarterly)
+    conn.execute("""
+        INSERT INTO tax_events
+        (investor_id, event_type, realized_gain, tax_due, date)
+        VALUES (?, 'Realized_Gain', ?, 0.0, ?)
+    """, (investor_id, realized_gain, date))
+
+    # Update fund flow request status
+    conn.execute("""
+        UPDATE fund_flow_requests SET status='processed',
+        net_proceeds=?, realized_gain=?, tax_withheld=0.0
+        WHERE request_id=?
+    """, (float(amount), float(realized_gain), request_id))
+
     conn.commit()
-    return {"status": "success", "net_proceeds": net_proceeds, "tax": tax_withheld}
+    return {"net_proceeds": float(amount), "realized_gain": float(realized_gain)}
 ```
 
 ### Example 3: Daily NAV Update Flow
@@ -596,13 +582,14 @@ def test_daily_nav_calculation(populated_db):
 
 ## Key Integration Points
 
-### Tradier API Integration
-- **Module**: `src/api/tradier.py`
-- **Config**: TRADIER_API_KEY, TRADIER_ACCOUNT_ID from settings
+### Brokerage Integration
+- **Primary**: TastyTrade (`src/api/tastytrade_client.py`) — active brokerage
+- **Legacy**: Tradier (`src/api/tradier.py`) — historical data
+- **Protocol**: `src/api/brokerage.py` — BrokerageClient protocol with factory pattern
 - **Use Cases**:
   - Fetch current portfolio positions
-  - Get transaction history for reconciliation
-  - Daily NAV uses real positions from Tradier
+  - Get transaction history via ETL pipeline
+  - Daily NAV uses real positions from active brokerage
 - **Error Handling**: Network timeouts wrapped with retry logic
 
 ### Email Delivery
@@ -630,11 +617,11 @@ def test_daily_nav_calculation(populated_db):
 1. Insert into `investors` table with investor_id (unique), name, join_date
 2. Initial transaction → creates first_shares = initial_contribution / nav_per_share_at_date
 
-### Process Contribution
+### Process Contribution or Withdrawal (Fund Flow)
 ```
-scripts/investor/contribution_processor.py --investor-id <id> --amount <amt>
-Calculates: shares_purchased = amount / current_nav_per_share
-Updates: investor.current_shares, transactions table
+python scripts/investor/submit_fund_flow.py     # Step 1: Submit request
+python scripts/investor/match_fund_flow.py       # Step 2: Match to brokerage ACH
+python scripts/investor/process_fund_flow.py     # Step 3: Execute share accounting
 ```
 
 ### Calculate Daily NAV
@@ -691,7 +678,7 @@ When adding features:
 | **Frontend** | `apps/investor_portal/frontend/` | React app, port 5173 |
 | **Automation** | `scripts/` | `daily_nav_enhanced.py` (main), `nav_helper.py`, subdirs by purpose |
 | **Tests** | `tests/` | `conftest.py` (fixtures), `test_*.py` (test modules) |
-| **Tradier API** | `src/api/` | `tradier.py` (client) |
+| **Brokerage API** | `src/api/` | `tastytrade_client.py` (primary), `tradier.py` (legacy), `brokerage.py` (protocol) |
 | **Docs** | `docs/` | Architecture, guides, cheat sheets |
 
 ---
@@ -702,7 +689,7 @@ When adding features:
 |---------|-------|----------|
 | Import errors when running scripts | Python path | Use `python run.py` or ensure PROJECT_ROOT in sys.path |
 | Database locked | Concurrent access | Only one uvicorn process or daily runner at a time |
-| Daily NAV fails | Tradier API | Check TRADIER_API_KEY, test with `python run.py api` |
+| Daily NAV fails | Brokerage API | Check TASTYTRADE_USERNAME/PASSWORD or TRADIER_API_KEY, test with `python run.py api` |
 | Email not sending | SMTP config | Verify SMTP_SERVER, SMTP_USER, SMTP_PASSWORD in .env |
 | Tests fail with import errors | Test isolation | Use pytest, fixtures from conftest.py handle test_db |
 | React frontend won't start | Dependencies | Run `npm install` if node_modules missing, check port 5173 |

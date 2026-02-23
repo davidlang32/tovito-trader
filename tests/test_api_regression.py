@@ -403,42 +403,83 @@ class TestRunner:
             return False, f"Status: {r.status_code}", None, r.json() if r.text else {}
         return self.run_test("GET /nav/performance", test)
 
-    # ========================================================
-    # WITHDRAWAL TESTS
-    # ========================================================
-    
-    def test_withdraw_estimate(self):
-        """Test withdrawal estimate"""
+    def test_benchmark_chart(self):
+        """Test benchmark chart endpoint returns PNG"""
         def test():
-            r = self.client.get("/withdraw/estimate", auth=True, params={"amount": 1000})
+            r = self.client.get("/nav/benchmark-chart", auth=True, params={"days": 30})
+            if r.status_code == 200:
+                content_type = r.headers.get("content-type", "")
+                is_png = "image/png" in content_type
+                size = len(r.content)
+                passed = is_png and size > 100
+                msg = f"PNG image, {size:,} bytes"
+                return passed, msg, None, {"size": size, "content_type": content_type}
+            return False, f"Status: {r.status_code}", None, {}
+        return self.run_test("GET /nav/benchmark-chart", test)
+
+    def test_benchmark_data(self):
+        """Test benchmark data endpoint returns JSON with nav_per_share"""
+        def test():
+            r = self.client.get("/nav/benchmark-data", auth=True, params={"days": 30})
             if r.status_code == 200:
                 data = r.json()
-                required = ["estimated_tax", "estimated_net_proceeds", "requested_amount"]
+                has_fund = "fund" in data
+                has_benchmarks = "benchmarks" in data
+                # Fund items should include nav_per_share for interactive chart
+                fund_has_nav = (
+                    len(data.get("fund", [])) == 0
+                    or "nav_per_share" in data["fund"][0]
+                )
+                passed = has_fund and has_benchmarks and fund_has_nav
+                tickers = list(data.get("benchmarks", {}).keys())
+                msg = f"Fund series (nav_per_share={fund_has_nav}) + benchmarks: {tickers}"
+                return passed, msg, None, {"tickers": tickers}
+            return False, f"Status: {r.status_code}", None, r.json() if r.text else {}
+        return self.run_test("GET /nav/benchmark-data", test)
+
+    # ========================================================
+    # FUND FLOW TESTS
+    # ========================================================
+
+    def test_fund_flow_estimate(self):
+        """Test fund flow withdrawal estimate"""
+        def test():
+            r = self.client.get("/fund-flow/estimate", auth=True,
+                                params={"flow_type": "withdrawal", "amount": 1000})
+            if r.status_code == 200:
+                data = r.json()
+                required = ["flow_type", "amount", "estimated_tax", "net_proceeds"]
                 passed = all(k in data for k in required)
-                msg = f"$1000 → Tax: ${data.get('estimated_tax', 0):.2f}, Net: ${data.get('estimated_net_proceeds', 0):.2f}"
+                msg = f"$1000 → Tax: ${data.get('estimated_tax', 0):.2f}, Net: ${data.get('net_proceeds', 0):.2f}"
                 return passed, msg, None, data
             return False, f"Status: {r.status_code}", None, r.json() if r.text else {}
-        return self.run_test("GET /withdraw/estimate", test)
-    
-    def test_withdraw_estimate_invalid(self):
-        """Test withdrawal estimate with invalid amount"""
+        return self.run_test("GET /fund-flow/estimate (withdrawal)", test)
+
+    def test_fund_flow_estimate_contribution(self):
+        """Test fund flow contribution estimate"""
         def test():
-            r = self.client.get("/withdraw/estimate", auth=True, params={"amount": 999999999})
-            passed = r.status_code == 400
-            return passed, f"Status: {r.status_code} (expected 400)", None, r.json() if r.text else {}
-        return self.run_test("GET /withdraw/estimate (exceeds balance)", test)
-    
-    def test_withdraw_pending(self):
-        """Test pending withdrawals"""
-        def test():
-            r = self.client.get("/withdraw/pending", auth=True)
+            r = self.client.get("/fund-flow/estimate", auth=True,
+                                params={"flow_type": "contribution", "amount": 1000})
             if r.status_code == 200:
                 data = r.json()
-                passed = "pending" in data and "total_pending_amount" in data
-                count = len(data.get("pending", []))
-                return passed, f"{count} pending requests", None, {"count": count}
+                required = ["flow_type", "amount", "estimated_shares"]
+                passed = all(k in data for k in required)
+                msg = f"$1000 → Shares: {data.get('estimated_shares', 0):.4f}"
+                return passed, msg, None, data
             return False, f"Status: {r.status_code}", None, r.json() if r.text else {}
-        return self.run_test("GET /withdraw/pending", test)
+        return self.run_test("GET /fund-flow/estimate (contribution)", test)
+
+    def test_fund_flow_requests_list(self):
+        """Test listing fund flow requests"""
+        def test():
+            r = self.client.get("/fund-flow/requests", auth=True)
+            if r.status_code == 200:
+                data = r.json()
+                passed = "requests" in data and "total" in data
+                count = data.get("total", 0)
+                return passed, f"{count} fund flow requests", None, {"count": count}
+            return False, f"Status: {r.status_code}", None, r.json() if r.text else {}
+        return self.run_test("GET /fund-flow/requests", test)
 
     # ========================================================
     # RUN ALL TESTS
@@ -453,7 +494,7 @@ class TestRunner:
         print(f"  Email: {email}")
         print(f"  Time: {self.suite.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
-        all_sections = ["health", "auth", "investor", "nav", "withdraw"]
+        all_sections = ["health", "auth", "investor", "nav", "fund-flow"]
         run_sections = sections or all_sections
         
         try:
@@ -491,12 +532,12 @@ class TestRunner:
                 self.test_nav_history()
                 self.test_nav_performance()
             
-            # Withdrawals
-            if "withdraw" in run_sections:
-                self.section("Withdrawals")
-                self.test_withdraw_estimate()
-                self.test_withdraw_estimate_invalid()
-                self.test_withdraw_pending()
+            # Fund Flow
+            if "fund-flow" in run_sections:
+                self.section("Fund Flow")
+                self.test_fund_flow_estimate()
+                self.test_fund_flow_estimate_contribution()
+                self.test_fund_flow_requests_list()
                 
         except StopIteration:
             print("\n⛔ Stopped due to test failure (--stop-on-fail)")

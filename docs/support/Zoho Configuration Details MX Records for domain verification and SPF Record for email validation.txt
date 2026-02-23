@@ -1,0 +1,38 @@
+Go Mobile
+
+Profile display picture
+Stay Connected with Zoho Mobile Apps
+Our mobile apps are engineered with enhanced functionality for ease of use and speed. Click here to download our mobile apps and manage your organization on the go.
+
+Configurations
+The following information is provided for Zoho Mail IMAP, POP, and SMTP Configuration Details, MX Records for domain verification and SPF Record for email validation.
+
+IMAP
+Incoming Server Name
+imappro.zoho.com
+Port
+993
+Require SSL
+Yes
+Username
+you@yourdomain.com
+
+
+POP
+Incoming Server Name
+poppro.zoho.com
+Port
+995
+Require SSL
+Yes
+Username
+you@yourdomain.com
+Outgoing / SMTP
+
+
+Outgoing Server Name
+smtppro.zoho.com
+Port
+465 with SSL or 587 with TLS
+Require Authentication
+Yes

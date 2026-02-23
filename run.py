@@ -13,8 +13,7 @@ Usage:
     python run.py validate       # Validate data
     python run.py logs           # View logs
     python run.py positions      # View positions
-    python run.py contribution   # Process contribution
-    python run.py withdrawal     # Process withdrawal
+    python run.py fund-flow      # Fund flow workflow info
     python run.py reverse        # Reverse last transaction
     python run.py monthly-report # Generate monthly reports
     python run.py migrate        # Import from Excel
@@ -117,15 +116,22 @@ def main():
             from scripts.utilities import view_positions
             view_positions.view_positions()
         
-        elif command == 'contribution':
-            # Updated path: scripts/investor/process_contribution.py
-            from scripts.investor import process_contribution
-            process_contribution.main()
-        
-        elif command == 'withdrawal':
-            # Updated path: scripts/investor/process_withdrawal_enhanced.py
-            from scripts.investor import process_withdrawal_enhanced
-            process_withdrawal_enhanced.process_withdrawal()
+        elif command in ('contribution', 'withdrawal', 'fund-flow'):
+            print()
+            print("=" * 60)
+            print("FUND FLOW WORKFLOW")
+            print("=" * 60)
+            print()
+            print("All contributions and withdrawals use the fund flow")
+            print("lifecycle: submit -> match -> process")
+            print()
+            print("  Step 1: python scripts/investor/submit_fund_flow.py")
+            print("  Step 2: python scripts/investor/match_fund_flow.py")
+            print("  Step 3: python scripts/investor/process_fund_flow.py")
+            print()
+            print("Tax policy: Withdrawals disburse the full amount.")
+            print("Realized gains are settled quarterly.")
+            print("=" * 60)
         
         elif command == 'reverse':
             # Updated path: scripts/utilities/reverse_transaction.py

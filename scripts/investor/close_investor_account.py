@@ -1,10 +1,14 @@
 """
 Close Investor Account
 
-Complete account closure with final tax settlement and full liquidation.
+Complete account closure with full liquidation via fund flow workflow.
+Creates proper fund_flow_requests records for audit trail.
+
+Tax is NOT withheld at closure — realized gains are recorded and settled
+quarterly via scripts/tax/quarterly_tax_payment.py.
 
 Usage:
-    python scripts/close_investor_account.py --investor 20260101-01A
+    python scripts/investor/close_investor_account.py --investor 20260101-01A
 """
 
 import warnings
@@ -16,253 +20,316 @@ import os
 import argparse
 from pathlib import Path
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 from dotenv import load_dotenv
 
 load_dotenv()
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+PROJECT_DIR = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(PROJECT_DIR))
 
+DB_PATH = PROJECT_DIR / 'data' / 'tovito.db'
+TAX_RATE = Decimal('0.37')
+
+# Try to import email service
+EMAIL_AVAILABLE = False
 try:
-    from src.automation.email_service import send_email
+    from src.automation.email_service import EmailService
     EMAIL_AVAILABLE = True
 except ImportError:
-    EMAIL_AVAILABLE = False
-
-
-def get_database_path():
-    """Get database path"""
-    return Path(__file__).parent.parent.parent / 'data' / 'tovito.db'
+    try:
+        from src.automation.email_service import send_email
+        EMAIL_AVAILABLE = True
+    except ImportError:
+        pass
 
 
 def close_account():
-    """Close investor account with final tax settlement"""
-    
+    """Close investor account with full liquidation via fund flow workflow."""
+
     parser = argparse.ArgumentParser(description='Close investor account')
     parser.add_argument('--investor', required=True, help='Investor ID')
-    
     args = parser.parse_args()
-    
-    db_path = get_database_path()
-    if not db_path.exists():
-        print(f"❌ Database not found: {db_path}")
+
+    if not DB_PATH.exists():
+        print(f"Error: Database not found at {DB_PATH}")
         return False
-    
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        TAX_RATE = 0.37
-        
         # Get current NAV
-        cursor.execute("""
+        nav_row = conn.execute("""
             SELECT nav_per_share, date, total_portfolio_value, total_shares
             FROM daily_nav
             ORDER BY date DESC
             LIMIT 1
-        """)
-        nav_data = cursor.fetchone()
-        
-        if not nav_data:
-            print("❌ No NAV data")
+        """).fetchone()
+
+        if not nav_row:
+            print("Error: No NAV data available")
             return False
-        
-        nav_per_share, nav_date, portfolio_value, total_shares = nav_data
-        
+
+        nav_per_share = Decimal(str(round(nav_row['nav_per_share'], 4)))
+        nav_date = nav_row['date']
+        portfolio_value = Decimal(str(nav_row['total_portfolio_value']))
+        total_shares_fund = Decimal(str(nav_row['total_shares']))
+
         # Get investor
-        cursor.execute("""
+        investor = conn.execute("""
             SELECT investor_id, name, email, current_shares, net_investment, status
             FROM investors
             WHERE investor_id = ?
-        """, (args.investor,))
-        
-        investor = cursor.fetchone()
+        """, (args.investor,)).fetchone()
+
         if not investor:
-            print(f"❌ Investor {args.investor} not found")
+            print(f"Error: Investor {args.investor} not found")
             return False
-        
-        inv_id, name, email, shares, net_inv, status = investor
-        
+
+        inv_id = investor['investor_id']
+        name = investor['name']
+        email = investor['email']
+        shares = Decimal(str(investor['current_shares']))
+        net_inv = Decimal(str(investor['net_investment']))
+        status = investor['status']
+
         if status == 'Inactive':
-            print(f"⚠️  Investor {name} is already inactive")
+            print(f"Investor {inv_id} is already inactive")
             return True
-        
+
         # Calculate final position
-        gross_value = shares * nav_per_share
-        unrealized_gain = max(0, gross_value - net_inv)
-        tax_liability = unrealized_gain * TAX_RATE
+        gross_value = (shares * nav_per_share).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        unrealized_gain = max(Decimal('0'), gross_value - net_inv)
+        tax_liability = (unrealized_gain * TAX_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         after_tax_value = gross_value - tax_liability
-        
+
         print("=" * 80)
-        print(f"CLOSE INVESTOR ACCOUNT - {name}")
+        print(f"CLOSE INVESTOR ACCOUNT")
         print("=" * 80)
         print(f"Investor ID: {inv_id}")
         print(f"NAV Date: {nav_date}")
-        print(f"NAV: ${nav_per_share:.4f}")
+        print(f"NAV: ${float(nav_per_share):.4f}")
         print()
         print("CURRENT POSITION:")
-        print(f"  Shares:                {shares:,.4f}")
-        print(f"  Gross Value:           ${gross_value:,.2f}")
-        print(f"  Net Investment:        ${net_inv:,.2f}")
-        print(f"  Unrealized Gain:       ${unrealized_gain:,.2f}")
+        print(f"  Shares:                {float(shares):,.4f}")
+        print(f"  Gross Value:           ${float(gross_value):,.2f}")
+        print(f"  Net Investment:        ${float(net_inv):,.2f}")
+        print(f"  Unrealized Gain:       ${float(unrealized_gain):,.2f}")
         print()
-        print("FINAL TAX SETTLEMENT:")
-        print(f"  Tax Liability (37%):   ${tax_liability:,.2f}")
-        print(f"  After-Tax Value:       ${after_tax_value:,.2f}")
+        print("FINAL SETTLEMENT:")
+        print(f"  Realized Gain:         ${float(unrealized_gain):,.2f} (tax settled quarterly)")
+        print(f"  Amount Disbursed:      ${float(gross_value):,.2f} (full gross value)")
+        print(f"  Est. Tax Liability:    ${float(tax_liability):,.2f} (settled in next quarterly payment)")
         print()
         print("CLOSURE PLAN:")
-        print(f"  1. Sell all {shares:,.4f} shares")
-        print(f"  2. Withhold ${tax_liability:,.2f} for final tax")
-        print(f"  3. Disburse ${after_tax_value:,.2f} to investor")
+        print(f"  1. Sell all {float(shares):,.4f} shares")
+        print(f"  2. Disburse ${float(gross_value):,.2f} to investor (full amount)")
+        print(f"  3. Record realized gain for quarterly tax settlement")
         print(f"  4. Mark account inactive")
         print()
-        
-        confirm = input(f"Close account for {name}? (yes/no): ").strip().lower()
-        if confirm not in ['yes', 'y']:
+
+        confirm = input("Close this account? (yes/no): ").strip().lower()
+        if confirm not in ('yes', 'y'):
             print("Cancelled.")
             return False
-        
+
         print()
         print("Processing account closure...")
-        
-        # 1. Final withdrawal (full after-tax value)
-        cursor.execute("""
-            INSERT INTO transactions
-            (date, investor_id, transaction_type, amount, share_price, shares_transacted, notes)
-            VALUES (?, ?, 'Withdrawal', ?, ?, ?, ?)
+
+        now = datetime.now().isoformat()
+        today = datetime.now().date().isoformat()
+
+        # Step 1: Create fund_flow_requests record for the closure withdrawal
+        conn.execute("""
+            INSERT INTO fund_flow_requests (
+                investor_id, flow_type, requested_amount, request_date,
+                request_method, status, notes, created_at, updated_at
+            ) VALUES (?, 'withdrawal', ?, ?, 'admin', 'processed', ?, ?, ?)
         """, (
-            datetime.now().date().isoformat(),
             inv_id,
-            -after_tax_value,
-            nav_per_share,
-            -shares,
-            "Account closure - final withdrawal (after-tax)"
+            float(gross_value),
+            today,
+            "Account closure - full liquidation",
+            now, now,
         ))
-        
-        # 2. Final tax payment
-        if tax_liability > 0:
-            cursor.execute("""
-                INSERT INTO transactions
-                (date, investor_id, transaction_type, amount, share_price, shares_transacted, notes)
-                VALUES (?, ?, 'Tax Payment', ?, ?, ?, ?)
+        request_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # Step 2: Insert withdrawal transaction with fund flow linkage
+        conn.execute("""
+            INSERT INTO transactions (
+                date, investor_id, transaction_type, amount,
+                shares_transacted, nav_per_share, description,
+                reference_id, notes, created_at, updated_at
+            ) VALUES (?, ?, 'Withdrawal', ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            today,
+            inv_id,
+            float(-gross_value),
+            float(-shares),
+            float(nav_per_share),
+            f"Account closure - withdrawal of ${float(gross_value):,.2f} at NAV ${float(nav_per_share):,.4f}",
+            f"ffr-{request_id}",
+            f"Account closure - fund flow request #{request_id}",
+            now, now,
+        ))
+        transaction_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # Step 3: Record realized gain as tax event (no withholding)
+        if unrealized_gain > 0:
+            conn.execute("""
+                INSERT INTO tax_events (
+                    date, investor_id, event_type, withdrawal_amount,
+                    realized_gain, tax_rate, tax_due, net_proceeds,
+                    reference_id, created_at, updated_at
+                ) VALUES (?, ?, 'Realized_Gain', ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                datetime.now().date().isoformat(),
+                today,
                 inv_id,
-                -tax_liability,
-                nav_per_share,
-                0,  # No shares - tax already accounted for
-                "Account closure - final tax settlement"
+                float(gross_value),
+                float(unrealized_gain),
+                float(TAX_RATE),
+                0.0,  # No tax withheld — settled quarterly
+                float(gross_value),
+                f"ffr-{request_id}",
+                now, now,
             ))
-        
-        # 3. Update investor to inactive
-        cursor.execute("""
+
+        # Step 4: Update fund_flow_requests with processing details
+        conn.execute("""
+            UPDATE fund_flow_requests
+            SET processed_date = ?,
+                actual_amount = ?,
+                shares_transacted = ?,
+                nav_per_share = ?,
+                transaction_id = ?,
+                realized_gain = ?,
+                tax_withheld = 0,
+                net_proceeds = ?,
+                updated_at = ?
+            WHERE request_id = ?
+        """, (
+            now,
+            float(gross_value),
+            float(shares),
+            float(nav_per_share),
+            transaction_id,
+            float(unrealized_gain),
+            float(gross_value),
+            now,
+            request_id,
+        ))
+
+        # Step 5: Update investor to inactive with zero shares
+        conn.execute("""
             UPDATE investors
             SET status = 'Inactive',
                 current_shares = 0,
+                net_investment = 0,
                 updated_at = ?
             WHERE investor_id = ?
-        """, (datetime.now().isoformat(), inv_id))
-        
-        # 4. Update daily NAV
-        new_portfolio_value = portfolio_value - gross_value
-        new_total_shares = total_shares - shares
-        
-        cursor.execute("""
+        """, (now, inv_id))
+
+        # Step 6: Update daily NAV totals
+        new_portfolio_value = float(portfolio_value - gross_value)
+        new_total_shares = float(total_shares_fund - shares)
+
+        conn.execute("""
             UPDATE daily_nav
             SET total_portfolio_value = ?,
                 total_shares = ?
             WHERE date = ?
-        """, (new_portfolio_value, new_total_shares, nav_date))
-        
-        conn.commit()
-        
-        print("   ✅ Database updated")
-        
-        # Send email
-        admin_email = os.getenv('ADMIN_EMAIL', 'dlang32@gmail.com')
-        
-        if EMAIL_AVAILABLE:
-            # Investor confirmation
-            subject = "Account Closure Confirmation - Tovito Trader"
-            message = f"""Dear {name},
+        """, (round(new_portfolio_value, 2), round(new_total_shares, 4), nav_date))
 
-Your account closure has been processed.
+        # Step 7: Log to system_logs
+        conn.execute("""
+            INSERT INTO system_logs (timestamp, level, category, message, details)
+            VALUES (?, 'INFO', 'Account Closure', ?, ?)
+        """, (
+            now,
+            f"Account closed for {inv_id}: ${float(gross_value):,.2f} disbursed",
+            f"request_id={request_id}, transaction_id={transaction_id}, "
+            f"shares={float(shares):.4f}, nav={float(nav_per_share):.4f}, "
+            f"realized_gain={float(unrealized_gain):,.2f}",
+        ))
+
+        conn.commit()
+
+        print("   Database updated")
+
+        # Send emails
+        if EMAIL_AVAILABLE:
+            try:
+                email_service = EmailService()
+
+                # Investor confirmation
+                subject = "Account Closure Confirmation - Tovito Trader"
+                body = f"""Account Closure Confirmation
+============================
+
+Your account has been closed.
 
 FINAL ACCOUNT SUMMARY
 =====================
-Gross Value:           ${gross_value:,.2f}
-Net Investment:        ${net_inv:,.2f}
-Total Gain:            ${unrealized_gain:,.2f}
+Gross Value:           ${float(gross_value):,.2f}
+Net Investment:        ${float(net_inv):,.2f}
+Total Gain:            ${float(unrealized_gain):,.2f}
 
-FINAL TAX SETTLEMENT
-====================
-Tax Liability (37%):   ${tax_liability:,.2f}
+DISBURSEMENT
+============
+Amount Disbursed:      ${float(gross_value):,.2f}
 
-FINAL DISBURSEMENT
-==================
-After-Tax Value:       ${after_tax_value:,.2f}
-
-This amount has been processed for payment to you.
-
-The tax liability has been paid to the IRS on your behalf.
-Your account is now closed.
+Note: Tax on realized gains (${float(unrealized_gain):,.2f}) will be
+settled in the next quarterly tax payment.
 
 INVESTMENT SUMMARY
 ==================
-Total Invested:        ${net_inv:,.2f}
-Total Returned:        ${after_tax_value:,.2f}
-Net Gain:              ${unrealized_gain - tax_liability:,.2f}
-Return:                {((after_tax_value / net_inv - 1) * 100):.2f}%
+Total Invested:        ${float(net_inv):,.2f}
+Total Returned:        ${float(gross_value):,.2f}
+Gross Return:          {float((gross_value / net_inv - 1) * 100) if net_inv > 0 else 0:.2f}%
 
-Thank you for investing with Tovito Trader!
-
-Best regards,
-Tovito Trader Management
+Thank you for investing with Tovito Trader.
 """
-            
-            send_email(email, subject, message)
-            print("   ✅ Investor email sent")
-            
-            # Admin notification
-            admin_subject = f"Account Closed - {name} - ${after_tax_value:,.2f} Disbursed"
-            admin_message = f"""Account closure completed for {name}.
+                email_service.send_general_email(
+                    recipient=None,
+                    subject=subject,
+                    body=body,
+                )
+                print("   Confirmation email sent")
+            except Exception as e:
+                print(f"   Note: Email not sent ({e})")
 
-Investor ID: {inv_id}
-
-Final Position:
-  Gross Value: ${gross_value:,.2f}
-  Tax Withheld: ${tax_liability:,.2f}
-  Disbursed: ${after_tax_value:,.2f}
-
-Return: {((after_tax_value / net_inv - 1) * 100):.2f}%
-
-Account marked inactive.
-Investor confirmation sent.
-"""
-            
-            send_email(admin_email, admin_subject, admin_message)
-            print("   ✅ Admin email sent")
-        
         print()
         print("=" * 80)
-        print("✅ ACCOUNT CLOSURE COMPLETE")
+        print("ACCOUNT CLOSURE COMPLETE")
         print("=" * 80)
-        print(f"Investor: {name}")
-        print(f"Disbursed: ${after_tax_value:,.2f}")
-        print(f"Tax Paid: ${tax_liability:,.2f}")
-        print(f"Status: Inactive")
+        print(f"  Investor:    {inv_id}")
+        print(f"  Disbursed:   ${float(gross_value):,.2f}")
+        print(f"  Realized Gain: ${float(unrealized_gain):,.2f} (tax settled quarterly)")
+        print(f"  Status:      Inactive")
         print()
-        print(f"Total return: {((after_tax_value / net_inv - 1) * 100):.2f}%")
+        print("Audit Links:")
+        print(f"  fund_flow_requests.request_id = {request_id}")
+        print(f"  fund_flow_requests.transaction_id = {transaction_id}")
+        print(f"  transactions.reference_id = 'ffr-{request_id}'")
         print()
-        
-        conn.close()
+
         return True
-        
+
     except sqlite3.Error as e:
-        print(f"❌ Database error: {e}")
+        print(f"Database error: {e}")
+        conn.rollback()
         import traceback
         traceback.print_exc()
         return False
+    except Exception as e:
+        print(f"Error: {e}")
+        conn.rollback()
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

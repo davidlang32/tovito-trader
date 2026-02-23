@@ -14,6 +14,7 @@ from src.reporting.charts import (
     generate_nav_chart,
     generate_investor_value_chart,
     generate_holdings_chart,
+    generate_benchmark_chart,
     _parse_date,
 )
 
@@ -560,3 +561,135 @@ class TestInvestorValueShareReconstruction:
             assert_valid_png(path)
         finally:
             path.unlink(missing_ok=True)
+
+
+# ============================================================
+# BENCHMARK CHART TESTS
+# ============================================================
+
+@pytest.fixture
+def benchmark_data():
+    """Sample benchmark data for 22 trading days."""
+    start = datetime(2026, 1, 1)
+    data = {}
+    for ticker, base_price in [('SPY', 500.0), ('QQQ', 450.0), ('BTC-USD', 95000.0)]:
+        series = []
+        for i in range(30):
+            day = start + timedelta(days=i)
+            # SPY/QQQ skip weekends; BTC trades every day
+            if day.weekday() >= 5 and ticker != 'BTC-USD':
+                continue
+            price = base_price * (1 + i * 0.003 + (0.005 if i % 5 == 0 else -0.002))
+            series.append({
+                'date': day.strftime('%Y-%m-%d'),
+                'close_price': round(price, 2),
+            })
+        data[ticker] = series
+    return data
+
+
+class TestBenchmarkChart:
+    """Tests for generate_benchmark_chart()."""
+
+    def test_produces_valid_png(self, nav_history, benchmark_data):
+        """Test that benchmark chart produces a valid PNG file."""
+        path = generate_benchmark_chart(nav_history, benchmark_data)
+        try:
+            assert_valid_png(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_with_empty_benchmarks(self, nav_history):
+        """Test chart with no benchmark data still produces a chart."""
+        path = generate_benchmark_chart(nav_history, {})
+        try:
+            assert_valid_png(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_with_none_benchmarks(self, nav_history):
+        """Test chart with None benchmark data."""
+        path = generate_benchmark_chart(nav_history, None)
+        try:
+            assert_valid_png(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_with_partial_benchmarks(self, nav_history):
+        """Test chart when only one benchmark has data."""
+        partial = {
+            'SPY': [
+                {'date': '2026-01-01', 'close_price': 500.0},
+                {'date': '2026-01-02', 'close_price': 502.0},
+                {'date': '2026-01-03', 'close_price': 504.0},
+            ],
+            'QQQ': [],
+            'BTC-USD': [],
+        }
+        path = generate_benchmark_chart(nav_history, partial)
+        try:
+            assert_valid_png(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_empty_nav_produces_placeholder(self):
+        """Test chart with empty NAV data returns a placeholder."""
+        path = generate_benchmark_chart([], {})
+        try:
+            assert_valid_png(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_single_nav_point_produces_placeholder(self):
+        """Test chart with only one NAV point returns a placeholder."""
+        path = generate_benchmark_chart(
+            [{'date': '2026-01-01', 'nav_per_share': 1.0}], {}
+        )
+        try:
+            assert_valid_png(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_custom_dimensions(self, nav_history, benchmark_data):
+        """Test chart at Discord-optimized dimensions."""
+        path = generate_benchmark_chart(
+            nav_history, benchmark_data,
+            width=14.0, height=7.0, dpi=200,
+        )
+        try:
+            assert_valid_png(path)
+            # Discord chart should be larger than default
+            assert path.stat().st_size > 1000
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_report_dimensions(self, nav_history, benchmark_data):
+        """Test chart at report-optimized dimensions."""
+        path = generate_benchmark_chart(
+            nav_history, benchmark_data,
+            width=7.5, height=4.0, dpi=150,
+        )
+        try:
+            assert_valid_png(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_no_mountain(self, nav_history, benchmark_data):
+        """Test chart with show_mountain=False."""
+        path = generate_benchmark_chart(
+            nav_history, benchmark_data, show_mountain=False,
+        )
+        try:
+            assert_valid_png(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_unique_temp_files(self, nav_history, benchmark_data):
+        """Each call should produce a unique temporary file."""
+        path1 = generate_benchmark_chart(nav_history, benchmark_data)
+        path2 = generate_benchmark_chart(nav_history, benchmark_data)
+        try:
+            assert path1 != path2
+        finally:
+            path1.unlink(missing_ok=True)
+            path2.unlink(missing_ok=True)

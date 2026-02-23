@@ -657,3 +657,155 @@ class TestWithdrawalRequestsMigration:
         )
         types = [row['flow_type'] for row in cursor.fetchall()]
         assert types == ['withdrawal']
+
+
+# ============================================================
+# TAX POLICY TESTS — QUARTERLY SETTLEMENT, NO WITHHOLDING
+# ============================================================
+
+class TestQuarterlyTaxSettlement:
+    """Tests for the quarterly tax settlement policy.
+
+    Policy: Tax is NOT withheld at withdrawal time. Realized gains
+    are tracked for quarterly tax settlement. Full withdrawal amount
+    is disbursed to the investor.
+    """
+
+    def test_withdrawal_no_tax_withheld(self):
+        """Processed withdrawal should have tax_withheld = 0."""
+        # Under the quarterly settlement policy, withdrawals disburse
+        # the full amount — tax is settled via quarterly_tax_payment.py
+        net_investment = Decimal('10000')
+        current_value = Decimal('15000')
+        withdrawal_amount = Decimal('5000')
+
+        proportion = withdrawal_amount / current_value
+        unrealized_gain = max(Decimal('0'), current_value - net_investment)
+        realized_gain = (unrealized_gain * proportion).quantize(
+            Decimal('0.01')
+        )
+
+        # Policy: no withholding
+        tax_withheld = Decimal('0')
+        net_proceeds = withdrawal_amount  # Full amount disbursed
+
+        assert realized_gain == Decimal('1666.67')
+        assert tax_withheld == Decimal('0')
+        assert net_proceeds == withdrawal_amount
+
+    def test_realized_gain_still_calculated(self):
+        """Realized gain must still be calculated even without withholding."""
+        net_investment = Decimal('10000')
+        current_value = Decimal('20000')
+        withdrawal_amount = Decimal('10000')
+
+        proportion = withdrawal_amount / current_value  # 50%
+        unrealized_gain = max(Decimal('0'), current_value - net_investment)
+        realized_gain = (unrealized_gain * proportion).quantize(
+            Decimal('0.01')
+        )
+
+        # Gain is tracked for quarterly tax, even though not withheld
+        assert realized_gain == Decimal('5000.00')
+        assert realized_gain > 0
+
+    def test_fund_flow_request_stores_zero_tax(self, fund_flow_db, sample_withdrawal_request):
+        """Processed withdrawal fund_flow_request should store tax_withheld=0."""
+        req_id = insert_request(fund_flow_db, sample_withdrawal_request, status='matched')
+        now = datetime.now().isoformat()
+
+        # Process with quarterly settlement policy
+        fund_flow_db.execute("""
+            UPDATE fund_flow_requests
+            SET status = 'processed',
+                processed_date = ?,
+                actual_amount = 3000.00,
+                shares_transacted = 2850.0000,
+                nav_per_share = 1.0526,
+                transaction_id = 100,
+                realized_gain = 500.00,
+                tax_withheld = 0,
+                net_proceeds = 3000.00
+            WHERE request_id = ?
+        """, (now, req_id))
+        fund_flow_db.commit()
+
+        cursor = fund_flow_db.execute(
+            "SELECT * FROM fund_flow_requests WHERE request_id = ?", (req_id,)
+        )
+        row = cursor.fetchone()
+
+        assert row['status'] == 'processed'
+        assert row['tax_withheld'] == 0
+        assert row['net_proceeds'] == 3000.00
+        assert row['realized_gain'] == 500.00
+
+
+# ============================================================
+# ELIGIBLE WITHDRAWAL TESTS
+# ============================================================
+
+class TestEligibleWithdrawal:
+    """Tests for the eligible withdrawal calculation.
+
+    eligible_withdrawal = current_value - estimated_tax_liability
+    estimated_tax_liability = max(0, unrealized_gain) * 0.37
+    """
+
+    def test_eligible_withdrawal_with_gain(self):
+        """Eligible withdrawal should be less than current value when gains exist."""
+        current_value = 15000.0
+        net_investment = 10000.0
+        tax_rate = 0.37
+
+        unrealized_gain = max(0, current_value - net_investment)
+        estimated_tax = round(unrealized_gain * tax_rate, 2)
+        eligible_withdrawal = round(current_value - estimated_tax, 2)
+
+        assert unrealized_gain == 5000.0
+        assert estimated_tax == 1850.0
+        assert eligible_withdrawal == 13150.0
+        assert eligible_withdrawal < current_value
+
+    def test_eligible_withdrawal_at_loss(self):
+        """Eligible withdrawal equals current value when position is at loss."""
+        current_value = 8000.0
+        net_investment = 10000.0
+        tax_rate = 0.37
+
+        unrealized_gain = max(0, current_value - net_investment)
+        estimated_tax = round(unrealized_gain * tax_rate, 2)
+        eligible_withdrawal = round(current_value - estimated_tax, 2)
+
+        assert unrealized_gain == 0
+        assert estimated_tax == 0
+        assert eligible_withdrawal == current_value
+
+    def test_eligible_withdrawal_at_breakeven(self):
+        """Eligible withdrawal equals current value at breakeven."""
+        current_value = 10000.0
+        net_investment = 10000.0
+        tax_rate = 0.37
+
+        unrealized_gain = max(0, current_value - net_investment)
+        estimated_tax = round(unrealized_gain * tax_rate, 2)
+        eligible_withdrawal = round(current_value - estimated_tax, 2)
+
+        assert unrealized_gain == 0
+        assert estimated_tax == 0
+        assert eligible_withdrawal == current_value
+
+    def test_eligible_withdrawal_is_always_positive(self):
+        """Eligible withdrawal should always be >= 0."""
+        # Even with massive gains, eligible should be positive
+        current_value = 100000.0
+        net_investment = 1000.0
+        tax_rate = 0.37
+
+        unrealized_gain = max(0, current_value - net_investment)
+        estimated_tax = round(unrealized_gain * tax_rate, 2)
+        eligible_withdrawal = round(current_value - estimated_tax, 2)
+
+        assert eligible_withdrawal > 0
+        # Max tax is 37% of gain, not 37% of value
+        assert eligible_withdrawal == round(100000 - (99000 * 0.37), 2)

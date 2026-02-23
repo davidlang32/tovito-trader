@@ -437,36 +437,44 @@ class TestValidationCalculations:
     """Test validation calculation accuracy."""
     
     def test_portfolio_value_matches_shares(self, populated_db):
-        """Portfolio value = Sum of (investor shares × NAV)."""
+        """Portfolio value = Sum of (investor shares * NAV), within rounding tolerance.
+
+        NAV is rounded to 4 decimals, so nav * shares can differ from
+        portfolio_value by up to total_shares * 0.00005 (~$1.90 for
+        38,000 shares). This is expected and consistent with SEC
+        4-decimal NAV rounding.
+        """
         cursor = populated_db.execute("""
-            SELECT nav_per_share, total_portfolio_value
+            SELECT nav_per_share, total_portfolio_value, total_shares
             FROM daily_nav
             ORDER BY date DESC
             LIMIT 1
         """)
         nav_data = cursor.fetchone()
-        
+
         cursor = populated_db.execute("""
             SELECT SUM(current_shares) as total_shares
             FROM investors
             WHERE status = 'Active'
         """)
         investor_shares = cursor.fetchone()['total_shares']
-        
+
         calculated_value = investor_shares * nav_data['nav_per_share']
-        
-        assert_close(calculated_value, nav_data['total_portfolio_value'], 0.01)
-    
+
+        # Tolerance: total_shares * 0.00005 (half of the 4th decimal place)
+        tolerance = nav_data['total_shares'] * 0.00005 + 0.01
+        assert_close(calculated_value, nav_data['total_portfolio_value'], tolerance)
+
     def test_individual_values_sum_to_total(self, populated_db):
-        """Sum of individual investor values = total portfolio value."""
+        """Sum of individual investor values = total portfolio value, within rounding tolerance."""
         cursor = populated_db.execute("""
-            SELECT nav_per_share, total_portfolio_value
+            SELECT nav_per_share, total_portfolio_value, total_shares
             FROM daily_nav
             ORDER BY date DESC
             LIMIT 1
         """)
         nav_data = cursor.fetchone()
-        
+
         cursor = populated_db.execute("""
             SELECT current_shares
             FROM investors
@@ -476,7 +484,9 @@ class TestValidationCalculations:
             row['current_shares'] * nav_data['nav_per_share']
             for row in cursor.fetchall()
         ]
-        
+
         total = sum(individual_values)
-        
-        assert_close(total, nav_data['total_portfolio_value'], 0.01)
+
+        # Tolerance: total_shares * 0.00005 (half of the 4th decimal place)
+        tolerance = nav_data['total_shares'] * 0.00005 + 0.01
+        assert_close(total, nav_data['total_portfolio_value'], tolerance)

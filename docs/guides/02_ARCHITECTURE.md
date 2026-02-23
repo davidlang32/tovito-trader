@@ -276,9 +276,9 @@ tovito-trader/                    # Target state (v1.0.0)
 │
 ├── scripts/                      # CLI tools (renamed folders)
 │   ├── investor/
-│   │   ├── process_contribution.py
-│   │   ├── process_withdrawal.py
-│   │   ├── request_withdrawal.py
+│   │   ├── submit_fund_flow.py       # Step 1: Submit contribution/withdrawal
+│   │   ├── match_fund_flow.py        # Step 2: Match to brokerage ACH
+│   │   ├── process_fund_flow.py      # Step 3: Execute share accounting
 │   │   ├── list_investors.py
 │   │   └── close_investor_account.py
 │   ├── reporting/

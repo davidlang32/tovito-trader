@@ -27,12 +27,14 @@ FOLDER_STRUCTURE = {
         'daily_nav_enhanced.py'
     ],
     '02_investor_management': [
-        'process_contribution.py',
-        'process_withdrawal.py',
-        'process_withdrawal_enhanced.py',
+        'submit_fund_flow.py',
+        'match_fund_flow.py',
+        'process_fund_flow.py',
         'close_investor_account.py',
-        'request_withdrawal.py',
-        'submit_withdrawal_request.py'
+        'assign_pending_contribution.py',
+        'list_investors.py',
+        'manage_profile.py',
+        'generate_referral_code.py'
     ],
     '03_reporting': [
         'generate_monthly_report.py',
@@ -65,10 +67,6 @@ FOLDER_STRUCTURE = {
         'reverse_transaction.py'
     ],
     'archive': [
-        'process_contribution_old.py',
-        'process_withdrawal_old.py',
-        'process_contribution_historical.py',
-        'process_withdrawal_historical.py',
         'validate.py',
         'sync_tradier_deposits.py',
         'populate_missing_transactions.py',

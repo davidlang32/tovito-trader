@@ -82,8 +82,9 @@ class TestNAVEdgeCases:
         total_value = 10000
         total_shares = 9753
         nav = calculate_nav(total_value, total_shares)
-        # Should round to 4 decimals
+        # Should round to 4 decimals: 10000/9753 = 1.0253
         assert len(str(nav).split('.')[-1]) <= 4
+        assert nav == 1.0253
 
 
 @pytest.mark.unit

@@ -1,6 +1,11 @@
 # ✅ OPTION 4 COMPLETE: END-TO-END TESTING
 ## Comprehensive System Validation
 
+> **⚠️ HISTORICAL DOCUMENT:** This document was created during the initial project setup.
+> Legacy scripts referenced here (`process_contribution.py`, `process_withdrawal.py`) have been
+> retired and replaced by the fund flow workflow (`submit_fund_flow.py` → `match_fund_flow.py`
+> → `process_fund_flow.py`). See `docs/audit/CHANGELOG.md` for details.
+
 ---
 
 ## 🎉 WHAT YOU GOT

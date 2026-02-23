@@ -152,9 +152,9 @@ def calculate_quarterly_tax():
                 print(f"  • {inv['name']}: $0 (no gain)")
                 continue
             
-            # Calculate shares to sell
-            shares_to_sell = inv['quarterly_tax'] / nav_per_share
-            new_shares = inv['shares'] - shares_to_sell
+            # Calculate shares to sell (4 decimal places)
+            shares_to_sell = round(inv['quarterly_tax'] / nav_per_share, 4)
+            new_shares = round(inv['shares'] - shares_to_sell, 4)
             
             # Update investor
             cursor.execute("""
@@ -191,8 +191,8 @@ def calculate_quarterly_tax():
         if portfolio_data:
             current_portfolio, current_total_shares = portfolio_data
             
-            new_portfolio = current_portfolio - total_tax
-            new_total_shares = current_total_shares - (total_tax / nav_per_share)
+            new_portfolio = round(current_portfolio - total_tax, 2)
+            new_total_shares = round(current_total_shares - (total_tax / nav_per_share), 4)
             
             cursor.execute("""
                 UPDATE daily_nav

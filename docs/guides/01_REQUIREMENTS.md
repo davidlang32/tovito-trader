@@ -525,15 +525,15 @@ REQ-{CATEGORY}-{NUMBER}: {Title}
 │   Estimated tax shown at request time                           │
 │                                                                 │
 │ Acceptance Criteria:                                            │
-│   - Request recorded in withdrawal_requests table               │
+│   - Request recorded in fund_flow_requests table                │
 │   - Status set to PENDING                                       │
 │   - Estimated tax and net proceeds displayed                    │
 │   - Cannot request more than current value                      │
 │                                                                 │
 │ Test Coverage:                                                  │
-│   Manual testing (request_withdrawal.py)                        │
+│   pytest tests/test_fund_flow.py (automated)                    │
 │                                                                 │
-│ Status: Implemented                                             │
+│ Status: Implemented (consolidated into fund flow workflow)       │
 │ Priority: High                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```

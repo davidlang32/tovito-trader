@@ -41,16 +41,19 @@ def create_schema(conn):
     kept in sync with any production schema changes.
     """
 
-    # Investors table
+    # Investors table (mirrors production schema_v2.py — PK is investor_id)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS investors (
-            id TEXT PRIMARY KEY,
+            investor_id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
             initial_capital REAL NOT NULL,
             join_date TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'Active',
             current_shares REAL NOT NULL DEFAULT 0,
             net_investment REAL NOT NULL DEFAULT 0,
+            notes TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
@@ -85,7 +88,7 @@ def create_schema(conn):
             reference_id TEXT,
             notes TEXT,
             created_at TEXT NOT NULL,
-            FOREIGN KEY (investor_id) REFERENCES investors(id)
+            FOREIGN KEY (investor_id) REFERENCES investors(investor_id)
         )
     """)
 
@@ -102,7 +105,7 @@ def create_schema(conn):
             tax_due REAL NOT NULL,
             net_proceeds REAL NOT NULL,
             created_at TEXT NOT NULL,
-            FOREIGN KEY (investor_id) REFERENCES investors(id)
+            FOREIGN KEY (investor_id) REFERENCES investors(investor_id)
         )
     """)
 
@@ -268,7 +271,7 @@ def create_schema(conn):
             notes TEXT,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (investor_id) REFERENCES investors(id)
+            FOREIGN KEY (investor_id) REFERENCES investors(investor_id)
         )
     """)
 
@@ -321,7 +324,7 @@ def create_schema(conn):
             last_verified_date DATE,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (investor_id) REFERENCES investors(id)
+            FOREIGN KEY (investor_id) REFERENCES investors(investor_id)
         )
     """)
 
@@ -345,7 +348,7 @@ def create_schema(conn):
             notes TEXT,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (referrer_investor_id) REFERENCES investors(id)
+            FOREIGN KEY (referrer_investor_id) REFERENCES investors(investor_id)
         )
     """)
 
@@ -377,13 +380,18 @@ def create_schema(conn):
         CREATE TABLE IF NOT EXISTS investor_auth (
             auth_id INTEGER PRIMARY KEY AUTOINCREMENT,
             investor_id TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
+            password_hash TEXT,
+            email_verified INTEGER DEFAULT 0,
+            verification_token TEXT,
+            verification_token_expires TIMESTAMP,
+            reset_token TEXT,
+            reset_token_expires TIMESTAMP,
             failed_attempts INTEGER DEFAULT 0,
             locked_until TIMESTAMP,
             last_login TIMESTAMP,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (investor_id) REFERENCES investors(id)
+            FOREIGN KEY (investor_id) REFERENCES investors(investor_id)
         )
     """)
 
@@ -400,21 +408,21 @@ def populate_sample_data(conn):
 
     # --- Test Investors ---
     investors = [
-        ("20260101-01A", "Alpha Investor", 10000, "2026-01-01"),
-        ("20260101-02A", "Beta Investor", 15000, "2026-01-01"),
-        ("20260101-03A", "Gamma Investor", 5000, "2026-01-01"),
-        ("20260115-01A", "Delta Investor", 8000, "2026-01-15"),
+        ("20260101-01A", "Alpha Investor", "alpha@test.com", 10000, "2026-01-01"),
+        ("20260101-02A", "Beta Investor", "beta@test.com", 15000, "2026-01-01"),
+        ("20260101-03A", "Gamma Investor", "gamma@test.com", 5000, "2026-01-01"),
+        ("20260115-01A", "Delta Investor", "delta@test.com", 8000, "2026-01-15"),
     ]
 
-    for inv_id, name, capital, join_date in investors:
+    for inv_id, name, email, capital, join_date in investors:
         conn.execute("""
             INSERT INTO investors
-            (id, name, initial_capital, join_date, status, current_shares, net_investment, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'Active', ?, ?, ?, ?)
-        """, (inv_id, name, capital, join_date, capital, capital, now, now))
+            (investor_id, name, email, initial_capital, join_date, status, current_shares, net_investment, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'Active', ?, ?, ?, ?)
+        """, (inv_id, name, email, capital, join_date, capital, capital, now, now))
 
     # --- Initial Transactions ---
-    for inv_id, name, capital, join_date in investors:
+    for inv_id, name, email, capital, join_date in investors:
         conn.execute("""
             INSERT INTO transactions
             (date, investor_id, investor_name, transaction_type, amount, share_price, shares_transacted, created_at)
@@ -483,6 +491,28 @@ def populate_sample_data(conn):
             INSERT INTO system_config (key, value, description, updated_at)
             VALUES (?, ?, ?, ?)
         """, (key, value, desc, now))
+
+    # --- Investor Auth Records (for portal login testing) ---
+    try:
+        import bcrypt
+        test_password = 'TestPass123!'
+        password_hash = bcrypt.hashpw(test_password.encode(), bcrypt.gensalt()).decode()
+
+        test_emails = {
+            "20260101-01A": "alpha@test.com",
+            "20260101-02A": "beta@test.com",
+            "20260101-03A": "gamma@test.com",
+            "20260115-01A": "delta@test.com",
+        }
+
+        for inv_id in test_emails:
+            conn.execute("""
+                INSERT INTO investor_auth
+                (investor_id, password_hash, email_verified, created_at, updated_at)
+                VALUES (?, ?, 1, ?, ?)
+            """, (inv_id, password_hash, now, now))
+    except ImportError:
+        pass  # bcrypt not installed — skip auth records
 
     # --- Sample System Log ---
     conn.execute("""

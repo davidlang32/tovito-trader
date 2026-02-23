@@ -27,12 +27,20 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # CORS (allowed origins for portal)
+    # Default origins for local development; production origins added via CORS_ORIGINS env var
     CORS_ORIGINS: List[str] = [
+        o.strip()
+        for o in os.getenv("CORS_ORIGINS", "").split(",")
+        if o.strip()
+    ] + [
         "http://localhost:3000",      # React dev server
+        "http://localhost:3001",      # React dev server (fallback port)
         "http://localhost:5173",      # Vite dev server
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
         "http://127.0.0.1:5173",
-        "https://portal.tovitotrader.com",  # Production portal
+        "https://tovitotrader.com",   # Production portal
+        "https://www.tovitotrader.com",
     ]
     
     # Rate Limiting
@@ -43,6 +51,9 @@ class Settings(BaseSettings):
     # Business Rules
     TAX_RATE: float = float(os.getenv("TAX_RATE", "0.37"))
     
+    # Portal URL (for email links — verification, password reset)
+    PORTAL_BASE_URL: str = os.getenv("PORTAL_BASE_URL", "http://localhost:3000")
+
     # Email notifications (for withdrawal requests)
     ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
     

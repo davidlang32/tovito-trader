@@ -102,6 +102,8 @@ class FundFlowEstimateResponse(BaseModel):
     estimated_tax: Optional[float] = None
     net_proceeds: Optional[float] = None
     remaining_shares: Optional[float] = None
+    eligible_withdrawal: Optional[float] = None
+    note: Optional[str] = None
 
 
 # ============================================================

@@ -47,6 +47,7 @@ try:
         generate_nav_chart,
         generate_investor_value_chart,
         generate_holdings_chart,
+        generate_benchmark_chart,
     )
     HAS_CHARTS = True
 except ImportError:
@@ -480,12 +481,15 @@ def generate_pdf_report(investor_info, nav_info, transactions, month, year, outp
     # TAX SUMMARY
     elements.append(Paragraph("<b>TAX SUMMARY</b>", section_style))
     
+    eligible_withdrawal = after_tax_value
+
     tax_data = [
         ['Unrealized Gains:', f'${unrealized_gain:,.2f}'],
         ['Estimated Tax Liability (37%):', f'${tax_liability:,.2f}'],
-        ['After-Tax Value:', f'${after_tax_value:,.2f}']
+        ['After-Tax Value:', f'${after_tax_value:,.2f}'],
+        ['Eligible Withdrawal:', f'${eligible_withdrawal:,.2f}'],
     ]
-    
+
     tax_table = Table(tax_data, colWidths=[2.5*inch, 2*inch])
     tax_table.setStyle(TableStyle([
         ('ALIGN', (0, 0), (0, -1), 'LEFT'),
@@ -573,6 +577,33 @@ def generate_pdf_report(investor_info, nav_info, transactions, month, year, outp
                     except Exception as e:
                         elements.append(Paragraph(
                             f"<i>NAV chart unavailable: {e}</i>",
+                            styles['Normal']
+                        ))
+
+                # Benchmark Comparison Chart
+                if nav_history:
+                    try:
+                        from src.market_data.benchmarks import get_benchmark_data
+                        benchmark_data = get_benchmark_data(
+                            get_database_path(), days=365,
+                        )
+                        has_benchmarks = any(
+                            len(v) > 0 for v in benchmark_data.values()
+                        )
+                        if has_benchmarks:
+                            benchmark_chart_path = generate_benchmark_chart(
+                                nav_history, benchmark_data,
+                            )
+                            chart_files.append(benchmark_chart_path)
+                            elements.append(RLImage(
+                                str(benchmark_chart_path),
+                                width=6.5*inch,
+                                height=3.5*inch,
+                            ))
+                            elements.append(Spacer(1, 0.2*inch))
+                    except Exception as e:
+                        elements.append(Paragraph(
+                            f"<i>Benchmark chart unavailable: {e}</i>",
                             styles['Normal']
                         ))
 
@@ -738,9 +769,10 @@ def generate_text_report(investor_info, nav_info, transactions, month, year, out
         report.append("")
     
     report.append("TAX SUMMARY")
-    report.append(f"Unrealized Gains:         ${unrealized_gain:,.2f}")
+    report.append(f"Unrealized Gains:              ${unrealized_gain:,.2f}")
     report.append(f"Estimated Tax Liability (37%): ${tax_liability:,.2f}")
-    report.append(f"After-Tax Value:          ${after_tax_value:,.2f}")
+    report.append(f"After-Tax Value:               ${after_tax_value:,.2f}")
+    report.append(f"Eligible Withdrawal:           ${after_tax_value:,.2f}")
     report.append("")
     
     report.append("PORTFOLIO ALLOCATION")

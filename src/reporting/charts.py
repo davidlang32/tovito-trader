@@ -19,8 +19,10 @@ Callers are responsible for cleanup after embedding into PDF.
 import tempfile
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
+
+import numpy as np
 
 # Use non-interactive backend before importing pyplot
 import matplotlib
@@ -28,6 +30,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.ticker as ticker
+from matplotlib.path import Path as MplPath
+from matplotlib.patches import PathPatch
+from matplotlib.colors import to_rgba
 
 logger = logging.getLogger(__name__)
 
@@ -86,16 +91,72 @@ def _setup_chart_style():
     })
 
 
-def _save_chart(fig, prefix='chart') -> Path:
+def _save_chart(fig, prefix='chart', dpi: int = None) -> Path:
     """Save figure to a temporary PNG file and return the path."""
     tmp = tempfile.NamedTemporaryFile(
         suffix='.png', prefix=f'tovito_{prefix}_', delete=False
     )
-    fig.savefig(tmp.name, dpi=CHART_DPI, bbox_inches='tight',
+    fig.savefig(tmp.name, dpi=dpi or CHART_DPI, bbox_inches='tight',
                 facecolor='white', edgecolor='none')
     plt.close(fig)
     logger.info("Chart saved: %s", tmp.name)
     return Path(tmp.name)
+
+
+def _gradient_fill(ax, x, y, color, alpha_top=0.35, alpha_bottom=0.0, zorder=1):
+    """
+    Fill the area under a line with a vertical gradient (solid → transparent).
+
+    Creates a gradient image clipped to the polygon formed by the data
+    line and the x-axis.  This produces the "mountain" visual effect.
+
+    Args:
+        ax: Matplotlib axes to draw on.
+        x: X values (list of datetime or numeric).
+        y: Y values (list of float).
+        color: Base color for the gradient (hex string or named color).
+        alpha_top: Opacity at the top edge of the fill (0.0–1.0).
+        alpha_bottom: Opacity at the bottom edge of the fill (0.0–1.0).
+        zorder: Drawing order for the gradient layer.
+    """
+    if len(x) < 2 or len(y) < 2:
+        return
+
+    # Convert dates to matplotlib numeric format for imshow extent
+    x_num = mdates.date2num(x)
+
+    # We must set axis limits before clipping so the gradient spans correctly
+    y_min = ax.get_ylim()[0]
+
+    # Build polygon vertices: follow the line, then close along the bottom
+    verts = list(zip(x_num, y))
+    verts.append((x_num[-1], y_min))
+    verts.append((x_num[0], y_min))
+    verts.append(verts[0])  # Close the path
+
+    codes = ([MplPath.MOVETO]
+             + [MplPath.LINETO] * (len(verts) - 2)
+             + [MplPath.CLOSEPOLY])
+    clip_path = MplPath(verts, codes)
+    patch = PathPatch(clip_path, facecolor='none', edgecolor='none')
+    ax.add_patch(patch)
+
+    # Build RGBA gradient: top row = (color, alpha_top) → bottom row = (color, alpha_bottom)
+    rgba_top = np.array(to_rgba(color, alpha=alpha_top))
+    rgba_bottom = np.array(to_rgba(color, alpha=alpha_bottom))
+    gradient = np.linspace(rgba_top, rgba_bottom, 256).reshape(256, 1, 4)
+    gradient = np.repeat(gradient, 2, axis=1)  # Need at least 2 columns
+
+    # Render the gradient image spanning the full data extent
+    y_lo, y_hi = ax.get_ylim()
+    im = ax.imshow(
+        gradient,
+        aspect='auto',
+        extent=[x_num[0], x_num[-1], y_lo, y_hi],
+        origin='upper',
+        zorder=zorder,
+    )
+    im.set_clip_path(patch)
 
 
 # ============================================================
@@ -105,6 +166,9 @@ def _save_chart(fig, prefix='chart') -> Path:
 def generate_nav_chart(
     nav_history: List[Dict],
     trade_counts: Optional[List[Dict]] = None,
+    width: float = None,
+    height: float = None,
+    dpi: int = None,
 ) -> Path:
     """
     Generate NAV per share time series chart.
@@ -117,11 +181,17 @@ def generate_nav_chart(
             'date' (str YYYY-MM-DD), 'nav_per_share' (float)
         trade_counts: Optional list of dicts with keys:
             'date' (str YYYY-MM-DD), 'trade_count' (int)
+        width: Chart width in inches (default: CHART_WIDTH).
+        height: Chart height in inches (default: CHART_HEIGHT).
+        dpi: Override DPI for saved image (default: CHART_DPI).
 
     Returns:
         Path to temporary PNG file.
     """
     _setup_chart_style()
+
+    chart_w = width or CHART_WIDTH
+    chart_h = height or CHART_HEIGHT
 
     if not nav_history:
         return _generate_empty_chart("NAV Performance", "No NAV data available")
@@ -130,13 +200,11 @@ def generate_nav_chart(
     dates = [_parse_date(r['date']) for r in nav_history]
     navs = [r['nav_per_share'] for r in nav_history]
 
-    fig, ax1 = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT))
+    fig, ax1 = plt.subplots(figsize=(chart_w, chart_h))
 
     # NAV line (primary axis)
     ax1.plot(dates, navs, color=COLORS['primary'], linewidth=2,
              label='NAV per Share', zorder=3)
-    ax1.fill_between(dates, navs, alpha=COLORS['fill_alpha'],
-                      color=COLORS['secondary'])
 
     ax1.set_xlabel('Date', color=COLORS['text'])
     ax1.set_ylabel('NAV per Share ($)', color=COLORS['primary'])
@@ -146,6 +214,10 @@ def generate_nav_chart(
 
     # Format X axis dates
     _format_date_axis(ax1, dates)
+
+    # Gradient mountain fill (must come after axis setup so limits are correct)
+    _gradient_fill(ax1, dates, navs, COLORS['secondary'],
+                   alpha_top=0.35, alpha_bottom=0.0, zorder=1)
 
     # Start NAV reference line
     if len(navs) > 1:
@@ -182,7 +254,7 @@ def generate_nav_chart(
                   fontsize=12, fontweight='bold', color=COLORS['text'])
 
     fig.tight_layout()
-    return _save_chart(fig, 'nav')
+    return _save_chart(fig, 'nav', dpi=dpi)
 
 
 # ============================================================
@@ -262,8 +334,6 @@ def generate_investor_value_chart(
     # Value line
     ax.plot(dates, values, color=COLORS['primary'], linewidth=2,
             label='Account Value', zorder=3)
-    ax.fill_between(dates, values, alpha=COLORS['fill_alpha'],
-                     color=COLORS['secondary'])
 
     # Transaction event markers
     if investor_transactions:
@@ -316,6 +386,10 @@ def generate_investor_value_chart(
     ax.grid(True, alpha=0.3, zorder=0)
 
     _format_date_axis(ax, dates)
+
+    # Gradient mountain fill (must come after axis setup so limits are correct)
+    _gradient_fill(ax, dates, values, COLORS['secondary'],
+                   alpha_top=0.35, alpha_bottom=0.0, zorder=1)
 
     ax.set_title('Your Account Value Over Time',
                  fontsize=12, fontweight='bold', color=COLORS['text'])
@@ -545,3 +619,264 @@ def _aggregate_positions(positions: List[Dict]) -> List[Dict]:
             entry['label'] = f"{entry['label']} ({entry['leg_count']} legs)"
 
     return result
+
+
+# ============================================================
+# CHART 4: NAV vs BENCHMARKS COMPARISON
+# ============================================================
+
+# Benchmark line styles and colors
+BENCHMARK_STYLES = {
+    'SPY':     {'color': '#2d8a4e', 'linestyle': '--',  'label': 'S&P 500 (SPY)'},
+    'QQQ':     {'color': '#8e44ad', 'linestyle': '-.', 'label': 'Nasdaq 100 (QQQ)'},
+    'BTC-USD': {'color': '#e67e22', 'linestyle': ':',  'label': 'Bitcoin (BTC)'},
+}
+
+
+def generate_benchmark_chart(
+    nav_history: List[Dict],
+    benchmark_data: Dict[str, List[Dict]],
+    width: float = None,
+    height: float = None,
+    dpi: int = None,
+    show_mountain: bool = True,
+) -> Path:
+    """
+    Generate NAV vs Benchmarks comparison chart.
+
+    Background (left Y-axis): NAV per share as filled area ("mountain").
+    Foreground (right Y-axis): Normalized percentage change lines for
+    the fund and each benchmark, all starting from 0% at the chart start.
+
+    Args:
+        nav_history: List of dicts with keys:
+            'date' (str YYYY-MM-DD), 'nav_per_share' (float)
+        benchmark_data: Dict mapping ticker -> list of dicts with keys:
+            'date' (str), 'close_price' (float).
+            Expected tickers: 'SPY', 'QQQ', 'BTC-USD'.
+        width: Chart width in inches (default: CHART_WIDTH).
+        height: Chart height in inches (default: CHART_HEIGHT).
+        dpi: Override DPI for saved image (default: CHART_DPI).
+        show_mountain: If True, draw NAV mountain fill on left axis.
+
+    Returns:
+        Path to temporary PNG file.
+    """
+    _setup_chart_style()
+
+    chart_w = width or CHART_WIDTH
+    chart_h = height or CHART_HEIGHT
+
+    if not nav_history:
+        return _generate_empty_chart(
+            "Fund vs. Benchmarks", "No NAV data available"
+        )
+
+    # Parse NAV dates and values
+    nav_dates = [_parse_date(r['date']) for r in nav_history]
+    nav_values = [r['nav_per_share'] for r in nav_history]
+
+    if len(nav_dates) < 2:
+        return _generate_empty_chart(
+            "Fund vs. Benchmarks", "Insufficient NAV data (need 2+ days)"
+        )
+
+    # Build date -> NAV lookup for alignment
+    nav_by_date = {}
+    for d, v in zip(nav_dates, nav_values):
+        nav_by_date[d.strftime('%Y-%m-%d')] = v
+
+    # Normalize fund to percentage change from start
+    base_nav = nav_values[0]
+    fund_pct = [(v / base_nav - 1) * 100 for v in nav_values]
+
+    # Build normalized benchmark series aligned to NAV dates
+    benchmark_series = {}
+    for bm_ticker, series in (benchmark_data or {}).items():
+        if not series:
+            continue
+
+        # Build date -> price lookup
+        price_by_date = {
+            s['date']: s['close_price'] for s in series
+        }
+
+        # Align to NAV dates: for each NAV date, find matching or
+        # most recent prior benchmark price
+        aligned_pct = []
+        last_price = None
+        base_price = None
+
+        for nav_date in nav_dates:
+            date_str = nav_date.strftime('%Y-%m-%d')
+
+            # Exact match
+            if date_str in price_by_date:
+                last_price = price_by_date[date_str]
+            else:
+                # Find nearest prior date (within 5 days for weekends/holidays)
+                for offset in range(1, 6):
+                    check = (nav_date - timedelta(days=offset)).strftime('%Y-%m-%d')
+                    if check in price_by_date:
+                        last_price = price_by_date[check]
+                        break
+
+            if last_price is not None:
+                if base_price is None:
+                    base_price = last_price
+                aligned_pct.append((last_price / base_price - 1) * 100)
+            else:
+                aligned_pct.append(None)
+
+        benchmark_series[bm_ticker] = aligned_pct
+
+    # Create figure
+    fig, ax1 = plt.subplots(figsize=(chart_w, chart_h))
+
+    # LEFT Y-AXIS: NAV mountain (absolute values)
+    if show_mountain:
+        ax1.plot(
+            nav_dates, nav_values,
+            color=COLORS['secondary'],
+            linewidth=0.8,
+            alpha=0.3,
+            zorder=1,
+        )
+        ax1.set_ylabel('NAV per Share ($)', color=COLORS['secondary'], alpha=0.6)
+        ax1.tick_params(axis='y', labelcolor=COLORS['secondary'], colors=COLORS['secondary'])
+        ax1.yaxis.set_major_formatter(ticker.FormatStrFormatter('$%.4f'))
+        # Fade the left axis to keep it subtle behind the percentage lines
+        for label in ax1.get_yticklabels():
+            label.set_alpha(0.5)
+    else:
+        ax1.set_yticks([])
+        ax1.set_ylabel('')
+
+    ax1.grid(True, alpha=0.3, zorder=0)
+    _format_date_axis(ax1, nav_dates)
+
+    # Gradient mountain fill (must come after axis setup so limits are correct)
+    if show_mountain:
+        _gradient_fill(ax1, nav_dates, nav_values, COLORS['secondary'],
+                       alpha_top=0.35, alpha_bottom=0.0, zorder=1)
+
+    # RIGHT Y-AXIS: Normalized percentage change lines
+    ax2 = ax1.twinx()
+
+    # Fund line (bold, solid)
+    ax2.plot(
+        nav_dates, fund_pct,
+        color=COLORS['primary'],
+        linewidth=2.5,
+        label=f'Tovito ({fund_pct[-1]:+.1f}%)',
+        zorder=5,
+    )
+
+    # Benchmark lines
+    for t_ticker, pct_values in benchmark_series.items():
+        style = BENCHMARK_STYLES.get(t_ticker, {
+            'color': '#95a5a6', 'linestyle': '--', 'label': t_ticker
+        })
+
+        # Filter out None values for plotting
+        plot_dates = []
+        plot_vals = []
+        for d, v in zip(nav_dates, pct_values):
+            if v is not None:
+                plot_dates.append(d)
+                plot_vals.append(v)
+
+        if not plot_vals:
+            continue
+
+        last_val = plot_vals[-1]
+        ax2.plot(
+            plot_dates, plot_vals,
+            color=style['color'],
+            linestyle=style['linestyle'],
+            linewidth=1.5,
+            label=f"{style['label']} ({last_val:+.1f}%)",
+            zorder=4,
+        )
+
+        # End-of-line annotation
+        ax2.annotate(
+            f'{last_val:+.1f}%',
+            xy=(plot_dates[-1], last_val),
+            xytext=(8, 0),
+            textcoords='offset points',
+            fontsize=7,
+            fontweight='bold',
+            color=style['color'],
+            va='center',
+            zorder=6,
+        )
+
+    # Fund end-of-line annotation
+    ax2.annotate(
+        f'{fund_pct[-1]:+.1f}%',
+        xy=(nav_dates[-1], fund_pct[-1]),
+        xytext=(8, 0),
+        textcoords='offset points',
+        fontsize=7,
+        fontweight='bold',
+        color=COLORS['primary'],
+        va='center',
+        zorder=6,
+    )
+
+    # Current NAV callout — prominent label so no one has to eyeball it
+    current_nav = nav_values[-1]
+    ax1.annotate(
+        f'NAV: ${current_nav:,.4f}',
+        xy=(nav_dates[-1], current_nav),
+        xytext=(-14, 18),
+        textcoords='offset points',
+        fontsize=9,
+        fontweight='bold',
+        color=COLORS['primary'],
+        ha='right',
+        va='bottom',
+        zorder=10,
+        bbox=dict(
+            boxstyle='round,pad=0.4',
+            facecolor='white',
+            edgecolor=COLORS['primary'],
+            alpha=0.95,
+            linewidth=1.5,
+        ),
+        arrowprops=dict(
+            arrowstyle='->',
+            color=COLORS['primary'],
+            linewidth=1.5,
+            connectionstyle='arc3,rad=-0.2',
+        ),
+    )
+
+    ax2.set_ylabel('Performance (%)', color=COLORS['text'])
+    ax2.tick_params(axis='y', labelcolor=COLORS['text'])
+    ax2.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f%%'))
+
+    # Zero line
+    ax2.axhline(y=0, color=COLORS['grid'], linestyle='-', linewidth=0.8, alpha=0.5, zorder=2)
+
+    # Legend
+    ax2.legend(
+        loc='upper left',
+        framealpha=0.9,
+        fontsize=8,
+        edgecolor=COLORS['grid'],
+    )
+
+    # Title with date range
+    start_str = nav_dates[0].strftime('%b %d, %Y')
+    end_str = nav_dates[-1].strftime('%b %d, %Y')
+    ax1.set_title(
+        f'Fund Performance vs. Benchmarks  ({start_str} \u2013 {end_str})',
+        fontsize=12,
+        fontweight='bold',
+        color=COLORS['text'],
+    )
+
+    fig.tight_layout()
+    return _save_chart(fig, 'benchmark', dpi=dpi)

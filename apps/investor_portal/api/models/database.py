@@ -131,13 +131,18 @@ def get_investor_position(investor_id: str) -> Optional[Dict]:
         nav_per_share = nav["nav_per_share"]
         current_value = current_shares * nav_per_share
         net_investment = investor["net_investment"] or 0
-        
+
         total_return_dollars = current_value - net_investment
         total_return_percent = (total_return_dollars / net_investment * 100) if net_investment > 0 else 0
-        
+
         total_shares = nav["total_shares"] or 1
         portfolio_percentage = (current_shares / total_shares * 100) if total_shares > 0 else 0
-        
+
+        # Tax and eligible withdrawal calculations
+        unrealized_gain = max(0, current_value - net_investment)
+        estimated_tax_liability = round(unrealized_gain * settings.TAX_RATE, 2)
+        eligible_withdrawal = round(current_value - estimated_tax_liability, 2)
+
         return {
             "investor_id": investor["investor_id"],
             "name": investor["name"],
@@ -149,6 +154,9 @@ def get_investor_position(investor_id: str) -> Optional[Dict]:
             "total_return_dollars": round(total_return_dollars, 2),
             "total_return_percent": round(total_return_percent, 2),
             "portfolio_percentage": round(portfolio_percentage, 2),
+            "unrealized_gain": round(unrealized_gain, 2),
+            "estimated_tax_liability": estimated_tax_liability,
+            "eligible_withdrawal": eligible_withdrawal,
             "as_of_date": str(nav["date"])
         }
         
@@ -403,120 +411,33 @@ def get_fund_performance() -> Dict:
 
 
 # ============================================================
-# Withdrawals
+# Benchmark Data
 # ============================================================
 
-def calculate_withdrawal_estimate(investor_id: str, amount: float, tax_rate: float) -> Dict:
-    """Calculate estimated tax and proceeds for a withdrawal"""
-    position = get_investor_position(investor_id)
-    
-    if position is None:
-        raise ValueError("Position not found")
-    
-    current_value = position["current_value"]
-    net_investment = position["net_investment"]
-    
-    # Calculate unrealized gain
-    unrealized_gain = current_value - net_investment
-    
-    # Proportion of account being withdrawn
-    proportion = amount / current_value if current_value > 0 else 0
-    
-    # Principal and gain portions
-    principal_portion = net_investment * proportion
-    gain_portion = unrealized_gain * proportion
-    
-    # Realized gain (only positive gains are taxed)
-    realized_gain = max(0, gain_portion)
-    
-    # Tax
-    tax = realized_gain * tax_rate
-    
-    # Net proceeds
-    net_proceeds = amount - tax
-    
-    return {
-        "proportion": proportion,
-        "principal_portion": round(principal_portion, 2),
-        "gain_portion": round(gain_portion, 2),
-        "realized_gain": round(realized_gain, 2),
-        "tax": round(tax, 2),
-        "net_proceeds": round(net_proceeds, 2)
-    }
-
-
-def create_withdrawal_request(
-    investor_id: str,
-    amount: float,
-    method: str,
-    notes: Optional[str],
-    estimated_tax: float,
-    estimated_net: float
-) -> int:
-    """Create a withdrawal request"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute("""
-            INSERT INTO withdrawal_requests (
-                investor_id, request_date, requested_amount,
-                request_method, notes, status, created_at
-            ) VALUES (?, date('now'), ?, ?, ?, 'PENDING', datetime('now'))
-        """, (investor_id, amount, method, notes))
-        
-        conn.commit()
-        return cursor.lastrowid
-        
-    finally:
-        conn.close()
-
-
-def get_pending_withdrawals(investor_id: str) -> List[Dict]:
-    """Get pending withdrawal requests for an investor"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute("""
-            SELECT id, request_date, requested_amount, request_method as method,
-                   status, notes
-            FROM withdrawal_requests
-            WHERE investor_id = ? AND status = 'PENDING'
-            ORDER BY request_date DESC
-        """, (investor_id,))
-        
-        results = []
-        for row in cursor.fetchall():
-            r = dict(row)
-            # Calculate estimates
-            estimate = calculate_withdrawal_estimate(
-                investor_id, r["requested_amount"], settings.TAX_RATE
-            )
-            r["estimated_tax"] = estimate["tax"]
-            r["estimated_net"] = estimate["net_proceeds"]
-            results.append(r)
-        
-        return results
-        
-    finally:
-        conn.close()
-
-
-def cancel_withdrawal_request(request_id: int, investor_id: str) -> bool:
-    """Cancel a withdrawal request (only if PENDING and owned by investor)"""
+def get_cached_benchmark_data(days: int = 90) -> Dict[str, List[Dict]]:
+    """Get cached benchmark prices for chart generation."""
     conn = get_connection()
     cursor = conn.cursor()
 
     try:
-        cursor.execute("""
-            UPDATE withdrawal_requests
-            SET status = 'CANCELLED', updated_at = datetime('now')
-            WHERE id = ? AND investor_id = ? AND status = 'PENDING'
-        """, (request_id, investor_id))
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        tickers = ['SPY', 'QQQ', 'BTC-USD']
+        result = {}
 
-        conn.commit()
-        return cursor.rowcount > 0
+        for ticker in tickers:
+            cursor.execute("""
+                SELECT date, close_price
+                FROM benchmark_prices
+                WHERE ticker = ? AND date >= ?
+                ORDER BY date ASC
+            """, (ticker, cutoff))
+            result[ticker] = [dict(row) for row in cursor.fetchall()]
+
+        return result
+
+    except Exception:
+        # Table may not exist yet
+        return {}
 
     finally:
         conn.close()
@@ -673,13 +594,15 @@ def get_fund_flow_estimate(investor_id: str, flow_type: str, amount: float) -> D
             "new_total_shares": round(position["current_shares"] + estimated_shares, 4),
         }
     else:
-        # Withdrawal estimate with tax
+        # Withdrawal estimate — no tax withheld at withdrawal (settled quarterly)
         proportion = amount / current_value if current_value > 0 else 0
         unrealized_gain = max(0, current_value - net_investment)
         realized_gain = round(unrealized_gain * proportion, 2)
-        tax = round(realized_gain * settings.TAX_RATE, 2)
-        net_proceeds = round(amount - tax, 2)
         estimated_shares = round(amount / current_nav, 4) if current_nav > 0 else 0
+
+        # Eligible withdrawal = max amount after accounting for total tax liability
+        total_tax_liability = round(unrealized_gain * settings.TAX_RATE, 2)
+        eligible_withdrawal = round(current_value - total_tax_liability, 2)
 
         return {
             "flow_type": "withdrawal",
@@ -688,7 +611,9 @@ def get_fund_flow_estimate(investor_id: str, flow_type: str, amount: float) -> D
             "proportion": round(proportion * 100, 2),
             "estimated_shares": estimated_shares,
             "realized_gain": realized_gain,
-            "estimated_tax": tax,
-            "net_proceeds": net_proceeds,
+            "estimated_tax": 0.0,
+            "net_proceeds": round(amount, 2),
             "remaining_shares": round(position["current_shares"] - estimated_shares, 4),
+            "eligible_withdrawal": eligible_withdrawal,
+            "note": "Tax settled quarterly — full withdrawal amount disbursed.",
         }

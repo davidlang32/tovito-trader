@@ -1,0 +1,12 @@
+# Nixpacks configuration for Railway deployment
+# Tells Nixpacks to use the API-specific requirements file
+# instead of the default requirements.txt (which includes desktop GUI packages)
+
+[phases.setup]
+nixPkgs = ["python311"]
+
+[phases.install]
+cmds = ["pip install -r requirements-api.txt"]
+
+[start]
+cmd = "python -m uvicorn apps.investor_portal.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"

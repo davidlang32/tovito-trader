@@ -170,28 +170,17 @@ python scripts\05_validation\system_health_check.py
 
 ## 🔄 COMMON WORKFLOWS
 
-### **After Contribution**
+### **After Contribution or Withdrawal (Fund Flow)**
 ```cmd
-# 1. Process contribution
-python scripts\02_investor\process_contribution.py
+# 1. Process via fund flow workflow
+python scripts\investor\submit_fund_flow.py      # Submit request
+python scripts\investor\match_fund_flow.py        # Match to ACH
+python scripts\investor\process_fund_flow.py      # Execute
 
 # 2. Validate immediately
-python scripts\05_validation\validate_with_ach.py
+python scripts\validation\validate_comprehensive.py
 
 # 3. Should show all checks pass ✅
-```
-
----
-
-### **After Withdrawal**
-```cmd
-# 1. Process withdrawal
-python scripts\02_investor\process_withdrawal.py
-
-# 2. Validate immediately
-python scripts\05_validation\validate_with_ach.py
-
-# 3. Verify all checks pass ✅
 ```
 
 ---

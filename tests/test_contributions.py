@@ -23,8 +23,9 @@ class TestShareCalculations:
         """Calculate shares purchased with contribution."""
         amount = 5000
         nav = 1.0526
-        expected_shares = 4750.0
-        
+        # 5000 / 1.0526 = 4750.1425 (rounded to 4 decimal places)
+        expected_shares = 4750.1425
+
         shares = calculate_shares(amount, nav)
         assert_close(shares, expected_shares, 0.01)
     

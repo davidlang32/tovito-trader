@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from src.database.models import Database, Investor, DailyNAV, Transaction, SystemLog
 from src.api.brokerage import get_brokerage_client, get_combined_balance, get_configured_providers
+from src.utils.rounding import round_nav, round_shares, round_dollars, round_pct
 
 load_dotenv()
 
@@ -54,9 +55,10 @@ class NAVCalculator:
             total_shares = self._get_total_active_shares(session)
             print(f"✅ Total active shares: {total_shares:,.4f}")
             
-            # 3. Calculate NAV per share
+            # 3. Calculate NAV per share (4 decimal places per SEC standard)
+            total_portfolio_value = round_dollars(total_portfolio_value)
             if total_shares > 0:
-                nav_per_share = total_portfolio_value / total_shares
+                nav_per_share = round_nav(total_portfolio_value / total_shares)
             else:
                 nav_per_share = 1.0  # Default if no shares
             
@@ -71,9 +73,9 @@ class NAVCalculator:
             ).order_by(DailyNAV.date.desc()).first()
             
             if previous_nav:
-                daily_change_dollars = total_portfolio_value - previous_nav.total_portfolio_value
+                daily_change_dollars = round_dollars(total_portfolio_value - previous_nav.total_portfolio_value)
                 if previous_nav.total_portfolio_value > 0:
-                    daily_change_percent = (daily_change_dollars / previous_nav.total_portfolio_value) * 100
+                    daily_change_percent = round_pct((daily_change_dollars / previous_nav.total_portfolio_value) * 100)
             
             # 5. Save to database
             nav_record = DailyNAV(
@@ -189,16 +191,16 @@ class NAVCalculator:
             if not current_nav:
                 raise ValueError("No NAV data available")
             
-            # Calculate values
-            current_value = investor.current_shares * current_nav
-            unrealized_gain = max(0, current_value - investor.net_investment)
-            tax_liability = unrealized_gain * self.tax_rate
-            after_tax_value = current_value - tax_liability
+            # Calculate values (round dollars to 2 decimals)
+            current_value = round_dollars(investor.current_shares * current_nav)
+            unrealized_gain = round_dollars(max(0, current_value - investor.net_investment))
+            tax_liability = round_dollars(unrealized_gain * self.tax_rate)
+            after_tax_value = round_dollars(current_value - tax_liability)
             
             # Calculate return
             if investor.net_investment > 0:
-                total_return_percent = ((current_value - investor.net_investment) / investor.net_investment) * 100
-                after_tax_return_percent = ((after_tax_value - investor.net_investment) / investor.net_investment) * 100
+                total_return_percent = round_pct(((current_value - investor.net_investment) / investor.net_investment) * 100)
+                after_tax_return_percent = round_pct(((after_tax_value - investor.net_investment) / investor.net_investment) * 100)
             else:
                 total_return_percent = 0.0
                 after_tax_return_percent = 0.0

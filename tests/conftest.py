@@ -382,6 +382,40 @@ def _create_test_schema(conn):
         )
     """)
 
+    # Benchmark prices cache table
+    conn.execute("""
+        CREATE TABLE benchmark_prices (
+            date TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            close_price REAL NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (date, ticker)
+        )
+    """)
+
+    # Investor auth table (portal authentication)
+    conn.execute("""
+        CREATE TABLE investor_auth (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            investor_id TEXT NOT NULL UNIQUE,
+            password_hash TEXT,
+            email_verified INTEGER DEFAULT 0,
+            verification_token TEXT,
+            verification_token_expires TIMESTAMP,
+            reset_token TEXT,
+            reset_token_expires TIMESTAMP,
+            last_login TIMESTAMP,
+            failed_attempts INTEGER DEFAULT 0,
+            locked_until TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (investor_id) REFERENCES investors(id)
+        )
+    """)
+    conn.execute("CREATE INDEX idx_investor_auth_investor ON investor_auth(investor_id)")
+    conn.execute("CREATE INDEX idx_investor_auth_verification ON investor_auth(verification_token)")
+    conn.execute("CREATE INDEX idx_investor_auth_reset ON investor_auth(reset_token)")
+
     conn.commit()
 
 
@@ -412,13 +446,15 @@ def _populate_test_data(conn):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, ("2026-01-01", inv[0], inv[1], "Initial", inv[2], 1.0, inv[2], now))
     
-    # Insert 10 days of NAV history
+    # Insert NAV history — values must be internally consistent:
+    #   nav_per_share = round(total_portfolio_value / total_shares, 4)
+    total_shares = 38000
     nav_data = [
-        ("2026-01-01", 1.0000, 38000, 38000, 0, 0),
-        ("2026-01-02", 1.0132, 38500, 38000, 500, 1.32),
-        ("2026-01-03", 1.0263, 39000, 38000, 500, 1.30),
-        ("2026-01-04", 1.0395, 39500, 38000, 500, 1.28),
-        ("2026-01-05", 1.0526, 40000, 38000, 500, 1.27),
+        ("2026-01-01", round(38000 / total_shares, 4), 38000, total_shares, 0, 0),
+        ("2026-01-02", round(38500 / total_shares, 4), 38500, total_shares, 500, 1.32),
+        ("2026-01-03", round(39000 / total_shares, 4), 39000, total_shares, 500, 1.30),
+        ("2026-01-04", round(39500 / total_shares, 4), 39500, total_shares, 500, 1.28),
+        ("2026-01-05", round(40000 / total_shares, 4), 40000, total_shares, 500, 1.27),
     ]
     
     for nav in nav_data:
@@ -618,15 +654,15 @@ def tolerance():
 # ============================================================
 
 def calculate_shares(amount: float, nav: float) -> float:
-    """Calculate shares to purchase/sell."""
-    return amount / nav
+    """Calculate shares to purchase/sell (rounded to 4 decimal places)."""
+    return round(amount / nav, 4)
 
 
 def calculate_nav(total_value: float, total_shares: float) -> float:
-    """Calculate NAV per share."""
+    """Calculate NAV per share (rounded to 4 decimal places per SEC standard)."""
     if total_shares == 0:
         return 1.0
-    return total_value / total_shares
+    return round(total_value / total_shares, 4)
 
 
 def calculate_withdrawal_tax(

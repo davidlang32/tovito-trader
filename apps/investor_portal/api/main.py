@@ -5,9 +5,8 @@ Tovito Trader - Fund API
 REST API for the Investor Portal.
 Provides secure, authenticated access to fund data.
 
-Run locally:
-    cd apps/investor_portal/api
-    uvicorn main:app --reload --port 8000
+Run locally (from project root C:\\tovito-trader):
+    python -m uvicorn apps.investor_portal.api.main:app --reload --port 8000
 
 API Docs:
     http://localhost:8000/docs
@@ -20,19 +19,19 @@ from contextlib import asynccontextmanager
 import time
 
 from .config import settings
-from .routes import auth, investor, nav, withdraw, fund_flow, profile, referral
+from .routes import auth, investor, nav, fund_flow, profile, referral, reports, analysis
 
 
 # Lifespan for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    print(f"🚀 Fund API starting...")
+    print(f"[START] Fund API starting...")
     print(f"   Environment: {settings.ENV}")
     print(f"   Database: {settings.DATABASE_PATH}")
     yield
     # Shutdown
-    print("👋 Fund API shutting down...")
+    print("[STOP] Fund API shutting down...")
 
 
 # Create FastAPI app
@@ -70,7 +69,11 @@ async def add_timing_header(request: Request, call_next):
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     # Log the error (in production, send to monitoring)
-    print(f"❌ Unhandled error: {exc}")
+    # Use ascii repr to avoid Windows cp1252 encoding crashes
+    try:
+        print(f"[ERROR] Unhandled error: {exc}")
+    except UnicodeEncodeError:
+        print(f"[ERROR] Unhandled error: {ascii(str(exc))}")
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"}
@@ -81,10 +84,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(investor.router, prefix="/investor", tags=["Investor"])
 app.include_router(nav.router, prefix="/nav", tags=["NAV"])
-app.include_router(withdraw.router, prefix="/withdraw", tags=["Withdrawals"])
 app.include_router(fund_flow.router, prefix="/fund-flow", tags=["Fund Flow"])
 app.include_router(profile.router, prefix="/profile", tags=["Profile"])
 app.include_router(referral.router, prefix="/referral", tags=["Referral"])
+app.include_router(reports.router, prefix="/reports", tags=["Reports"])
+app.include_router(analysis.router, prefix="/analysis", tags=["Analysis"])
 
 
 # Health check endpoint

@@ -1,5 +1,11 @@
-# WITHDRAWAL SYSTEM - QUICK INSTALL
-## 15-Minute Setup Guide
+# WITHDRAWAL SYSTEM - QUICK INSTALL (ARCHIVED)
+## ~~15-Minute Setup Guide~~
+
+> **⚠️ ARCHIVED:** This installation guide is obsolete. The standalone withdrawal system
+> described here has been retired and consolidated into the unified **fund flow lifecycle**.
+> All contributions and withdrawals now use: `submit_fund_flow.py` → `match_fund_flow.py`
+> → `process_fund_flow.py`. Tax is settled quarterly (no withholding at withdrawal).
+> See `docs/audit/CHANGELOG.md` and `docs/reference/WITHDRAWAL_DELIVERY_SUMMARY.md` for details.
 
 ---
 

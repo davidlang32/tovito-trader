@@ -136,11 +136,10 @@ python scripts\nav\daily_nav_enhanced.py
 # Validate database
 python run.py validate
 
-# Process contribution
-python scripts\investor\process_contribution.py
-
-# Process withdrawal
-python scripts\investor\process_withdrawal_enhanced.py
+# Process contribution or withdrawal (fund flow workflow)
+python scripts\investor\submit_fund_flow.py      # Step 1: Submit request
+python scripts\investor\match_fund_flow.py        # Step 2: Match to ACH
+python scripts\investor\process_fund_flow.py      # Step 3: Execute
 
 # Generate monthly report
 python scripts\reporting\generate_monthly_report.py --month 2026-01

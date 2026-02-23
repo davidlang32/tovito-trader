@@ -4,17 +4,17 @@ A pooled investment fund management platform for tracking investor portfolios, c
 
 ## Overview
 
-Tovito Trader manages a shared investment portfolio where all investors participate in the same positions. The system calculates daily Net Asset Value (NAV) per share, tracks contributions and withdrawals, handles tax withholding on realized gains, and provides investors with real-time access to their positions.
+Tovito Trader manages a shared investment portfolio where all investors participate in the same positions. The system calculates daily Net Asset Value (NAV) per share, tracks contributions and withdrawals through a unified fund flow lifecycle, records realized gains for quarterly tax settlement, and provides investors with real-time access to their positions.
 
 ### Key Features
 
 - **Daily NAV Calculation** - Automated portfolio valuation at market close
 - **Investor Management** - Track multiple investors with proportional ownership
 - **Transaction Processing** - Handle contributions and withdrawals with proper share accounting
-- **Tax Withholding** - Automatic calculation of realized gains and tax withholding
+- **Tax Tracking** - Realized gains recorded at withdrawal, settled quarterly
 - **Investor Portal** - Web-based dashboard for investors to view positions
 - **REST API** - Secure API with JWT authentication
-- **Tradier Integration** - Real-time market data and portfolio tracking
+- **Brokerage Integration** - TastyTrade (primary) + Tradier (legacy) via protocol pattern
 - **Comprehensive Validation** - 8-point validation suite for data integrity
 
 ## Architecture
@@ -36,8 +36,8 @@ Tovito Trader manages a shared investment portfolio where all investors particip
 │                     └──────┬──────┘                        │
 │                            │                                │
 │                     ┌──────▼──────┐                        │
-│                     │  Tradier    │                        │
-│                     │    API      │                        │
+│                     │ TastyTrade  │                        │
+│                     │  / Tradier  │                        │
 │                     └─────────────┘                        │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -136,14 +136,13 @@ python scripts\nav\daily_nav_enhanced.py
 # Validate database
 python run.py validate
 
-# Process contribution
-python scripts\investor\process_contribution.py
-
-# Process withdrawal
-python scripts\investor\process_withdrawal_enhanced.py
+# Fund flow workflow (contributions & withdrawals)
+python scripts\investor\submit_fund_flow.py         # Step 1: Submit request
+python scripts\investor\match_fund_flow.py           # Step 2: Match to brokerage ACH
+python scripts\investor\process_fund_flow.py         # Step 3: Execute share accounting
 
 # Generate monthly report
-python scripts\reporting\generate_monthly_report.py --month 2026-01
+python scripts\reporting\generate_monthly_report.py --month 2 --year 2026
 ```
 
 ## API Endpoints
@@ -155,7 +154,8 @@ python scripts\reporting\generate_monthly_report.py --month 2026-01
 | `/investor/transactions` | GET | Transaction history |
 | `/nav/current` | GET | Current NAV per share |
 | `/nav/performance` | GET | Fund performance metrics |
-| `/withdraw/estimate` | GET | Withdrawal tax estimate |
+| `/fund-flow/estimate` | GET | Contribution/withdrawal estimate |
+| `/fund-flow/requests` | GET | List fund flow requests |
 
 Full API documentation: http://localhost:8000/docs
 
@@ -184,7 +184,7 @@ python test_api_regression.py --verbose
 | Frontend | React 18, Vite, Tailwind CSS |
 | Database | SQLite |
 | Authentication | JWT (python-jose), bcrypt |
-| Market Data | Tradier API |
+| Market Data | TastyTrade SDK, Tradier API (legacy) |
 | Task Scheduling | Windows Task Scheduler |
 
 ## Security
@@ -200,7 +200,7 @@ python test_api_regression.py --verbose
 - Python 3.11+
 - Node.js 18+
 - Windows 10/11 (for Task Scheduler automation)
-- Tradier API account
+- TastyTrade account (or Tradier API account for legacy mode)
 
 ## License
 

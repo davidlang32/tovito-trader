@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # SCHEMA DEFINITIONS
 # ============================================================
 
-SCHEMA_VERSION = "2.2.0"
+SCHEMA_VERSION = "2.3.0"
 
 # Core tables
 INVESTORS_TABLE = """
@@ -449,6 +449,18 @@ CREATE TABLE IF NOT EXISTS referrals (
 );
 """
 
+BENCHMARK_PRICES_TABLE = """
+CREATE TABLE IF NOT EXISTS benchmark_prices (
+    -- Cache for benchmark daily close prices (SPY, QQQ, BTC-USD)
+    -- Used by the NAV vs Benchmarks comparison chart
+    date TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    close_price REAL NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (date, ticker)
+);
+"""
+
 AUDIT_LOG_TABLE = """
 CREATE TABLE IF NOT EXISTS audit_log (
     -- Primary identifier
@@ -537,6 +549,9 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_investor_id)",
     "CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals(referral_code)",
     "CREATE INDEX IF NOT EXISTS idx_referrals_status ON referrals(status)",
+
+    # Benchmark Prices
+    "CREATE INDEX IF NOT EXISTS idx_benchmark_ticker_date ON benchmark_prices(ticker, date)",
 
     # Audit Log
     "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)",
@@ -791,9 +806,10 @@ class DatabaseManager:
             cursor.execute(TRADES_TABLE)
             cursor.execute(HOLDINGS_SNAPSHOTS_TABLE)
             cursor.execute(POSITION_SNAPSHOTS_TABLE)
+            cursor.execute(BENCHMARK_PRICES_TABLE)
             cursor.execute(AUDIT_LOG_TABLE)
             cursor.execute(SYSTEM_CONFIG_TABLE)
-            
+
             # Create indexes
             logger.info("Creating indexes...")
             for idx in INDEXES:
@@ -906,6 +922,7 @@ class DatabaseManager:
             cursor.execute(TRADES_TABLE)
             cursor.execute(HOLDINGS_SNAPSHOTS_TABLE)
             cursor.execute(POSITION_SNAPSHOTS_TABLE)
+            cursor.execute(BENCHMARK_PRICES_TABLE)
             cursor.execute(AUDIT_LOG_TABLE)
             cursor.execute(SYSTEM_CONFIG_TABLE)
             

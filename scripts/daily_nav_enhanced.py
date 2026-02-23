@@ -32,6 +32,7 @@ if sys.platform == 'win32':
 
 # Configuration
 PROJECT_DIR = Path("C:/tovito-trader")
+sys.path.insert(0, str(PROJECT_DIR))
 DB_PATH = PROJECT_DIR / "data" / "tovito.db"
 HEARTBEAT_FILE = PROJECT_DIR / "logs" / "daily_nav_heartbeat.txt"
 LOG_FILE = PROJECT_DIR / "logs" / "daily_runner.log"
@@ -50,6 +51,9 @@ BROKERAGE_PROVIDER = os.getenv('BROKERAGE_PROVIDER', 'tradier')
 TRADIER_API_KEY = os.getenv('TRADIER_API_KEY', '')
 TRADIER_ACCOUNT_ID = os.getenv('TRADIER_ACCOUNT_ID', '')
 TRADIER_BASE_URL = os.getenv('TRADIER_BASE_URL', 'https://api.tradier.com/v1')
+
+# Financial rounding
+from src.utils.rounding import round_nav, round_dollars, round_pct
 
 # External monitoring
 HEALTHCHECK_DAILY_NAV_URL = os.getenv('HEALTHCHECK_DAILY_NAV_URL', '')
@@ -299,13 +303,14 @@ Automated alert from daily_nav_enhanced.py
                 self.log(error, "ERROR")
                 return False
             
-            nav_per_share = portfolio_value / total_shares
+            portfolio_value = round_dollars(portfolio_value)
+            nav_per_share = round_nav(portfolio_value / total_shares)
             today = datetime.now().strftime('%Y-%m-%d')
-            
+
             # Get previous values for change calculation
             prev_value, prev_nav = self.get_previous_nav()
-            daily_change_dollars = portfolio_value - prev_value if prev_value else 0
-            daily_change_percent = ((nav_per_share - prev_nav) / prev_nav * 100) if prev_nav else 0
+            daily_change_dollars = round_dollars(portfolio_value - prev_value) if prev_value else 0
+            daily_change_percent = round_pct(((nav_per_share - prev_nav) / prev_nav * 100)) if prev_nav else 0
             
             conn = sqlite3.connect(str(DB_PATH), timeout=10)
             cursor = conn.cursor()
@@ -612,6 +617,27 @@ Automated alert from daily_nav_enhanced.py
 
             # Step 6: Sync brokerage trades via ETL (non-fatal)
             self.run_trade_sync()
+
+            # Step 7: Update Discord pinned NAV message (non-fatal)
+            try:
+                from scripts.discord.update_nav_message import update_nav_message
+                self.log("Step 7: Updating Discord pinned NAV message...")
+                if update_nav_message():
+                    self.log("  [OK] Discord NAV message updated")
+                else:
+                    self.log("  Discord NAV update skipped (not configured)", "WARNING")
+            except Exception as e:
+                self.log(f"  Discord NAV update failed: {e}", "WARNING")
+
+            # Step 8: Refresh benchmark data cache (non-fatal)
+            try:
+                from src.market_data.benchmarks import refresh_benchmark_cache
+                self.log("Step 8: Refreshing benchmark data cache...")
+                stats = refresh_benchmark_cache(DB_PATH)
+                for bmk_ticker, count in stats.items():
+                    self.log(f"  [OK] {bmk_ticker}: {count} new prices cached")
+            except Exception as e:
+                self.log(f"  Benchmark cache refresh failed: {e}", "WARNING")
 
             # Success!
             success = True
