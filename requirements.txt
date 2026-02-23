@@ -1,44 +1,30 @@
-# Tovito Trader - Python Dependencies
-# Install: pip install -r requirements.txt
+# Tovito Trader - Investor Portal API Dependencies
+# Minimal set for Railway deployment
+# Install: pip install -r requirements-api.txt
 
-# Core
-python-dotenv>=1.0.0
-sqlalchemy>=2.0.0
+# Core API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+email-validator>=2.1.0
+python-multipart>=0.0.6
 
-# Brokerage APIs
-tastytrade>=12.0.0
-requests>=2.31.0
-
-# Web Framework (Investor Portal API)
-fastapi>=0.100.0
-uvicorn>=0.23.0
-pyjwt>=2.8.0
+# Auth
+python-jose[cryptography]>=3.3.0
 bcrypt>=4.0.0
 
-# Desktop Apps
-streamlit>=1.28.0
-customtkinter>=5.2.0
+# Database
+sqlalchemy>=2.0.0
 
-# Reports
-reportlab>=4.0.0
-openpyxl>=3.1.0
+# Charts & reports (used by /nav and /reports endpoints)
 matplotlib>=3.8.0
+reportlab>=4.0.0
+yfinance>=1.2.0
+pandas>=2.0.0
 
-# Automation
-schedule>=1.2.0
-pytz>=2023.3
-
-# Email
-# (uses stdlib smtplib — no extra package needed)
-
-# Testing
-pytest>=7.4.0
-
-# Encryption (PII field-level encryption)
+# Encryption (investor profiles PII)
 cryptography>=42.0.0
 
-# Market Data (benchmark comparisons)
-yfinance>=1.2.0
-
-# Utilities
-pandas>=2.0.0
+# Environment
+python-dotenv>=1.0.0
