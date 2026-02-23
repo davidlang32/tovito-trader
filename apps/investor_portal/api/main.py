@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import time
 
-from .config import settings
+from .config import settings, CORS_ORIGINS
 from .routes import auth, investor, nav, fund_flow, profile, referral, reports, analysis
 
 
@@ -48,7 +48,7 @@ app = FastAPI(
 # CORS middleware (configure for your portal domain)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
