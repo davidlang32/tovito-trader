@@ -19,7 +19,7 @@ Tovito Trader is a **pooled investment fund management platform** launched Janua
 - **Web Frontend:** React + Vite + Tailwind CSS + TradingView Lightweight Charts (investor portal)
 - **Backend API:** FastAPI with JWT auth (investor portal API)
 - **Desktop Apps:** Streamlit (market monitor, ops dashboard), CustomTkinter (fund manager dashboard)
-- **Email:** Gmail SMTP for automated investor communications
+- **Email:** Resend HTTP API (production), SMTP (local development)
 - **Automation:** Windows Task Scheduler for daily NAV updates
 - **Reports:** ReportLab for PDF generation
 - **Discord:** discord.py (bot API for pinned NAV message), webhooks for trade/alert notifications
@@ -210,6 +210,84 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
     - **Improved verification email**: Added password requirements to the email body so investors know what to prepare before clicking the setup link.
     - **Auth service test suite**: New `tests/test_auth_service.py` (40 tests) covering: password validation rules, bcrypt hashing, initiate/complete verification, login with lockout tracking, password reset flow, and end-to-end registration + reset integration tests.
 
+## Production Deployment (Launched Feb 2026)
+
+The investor portal is deployed to production at **tovitotrader.com**.
+
+### Architecture
+- **Frontend:** Cloudflare Pages — React/Vite SPA at `tovitotrader.com`
+- **Backend API:** Railway — FastAPI at `api.tovitotrader.com`
+- **Database:** SQLite on Railway persistent volume (`/app/data/tovito.db`)
+- **Email:** Resend HTTP API (Railway blocks all SMTP ports 587/465)
+- **DNS/TLS:** Cloudflare (DNS proxy + SSL for frontend, CNAME for API)
+- **Domain Registrar:** Cloudflare
+- **Business Email:** Zoho Mail (`david.lang@tovitotrader.com`, `support@`, `admin@` aliases)
+
+### Deployment Files
+- **`railway.toml`** — Railway config (Nixpacks builder, healthcheck at `/health`, 120s timeout)
+- **`nixpacks.toml`** — Minimal config letting Nixpacks auto-detect Python from `requirements.txt`
+- **`requirements.txt`** — API-only dependencies (renamed from `requirements-api.txt` for Nixpacks)
+- **`requirements-full.txt`** — Full desktop+server dependencies (streamlit, customtkinter, etc.)
+
+### Railway Environment Variables
+```
+# Email (Resend HTTP API — SMTP blocked on Railway)
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=re_xxxxxxxxx
+SMTP_FROM_EMAIL=david.lang@tovitotrader.com
+SMTP_FROM_NAME=Tovito Trader
+
+# Database
+DATABASE_PATH=/app/data/tovito.db
+
+# Auth
+JWT_SECRET_KEY=<generated>
+
+# Portal
+PORTAL_BASE_URL=https://tovitotrader.com
+TOVITO_ENV=production
+
+# Encryption
+ENCRYPTION_KEY=<fernet-key>
+```
+
+### Cloudflare DNS Records
+- `tovitotrader.com` — Cloudflare Pages (proxied)
+- `api.tovitotrader.com` — CNAME to Railway (`*.up.railway.app`, DNS only)
+- MX + SPF/DKIM records for Zoho Mail + Resend
+
+### Email Transport (`src/automation/email_service.py`)
+The email service supports two transports via `EMAIL_PROVIDER` env var:
+- **`smtp`** (default) — Traditional SMTP, used locally with Zoho/Gmail
+- **`resend`** — Resend HTTP API (`https://api.resend.com/emails`), used on Railway where SMTP ports are blocked
+
+Local development uses SMTP (no changes to local `.env` needed). Production uses Resend.
+
+### Deployment Commands
+```powershell
+# Deploy code to Railway (pushes local files, triggers build)
+railway up
+
+# View Railway logs
+railway logs
+
+# SSH into Railway container
+railway ssh
+
+# Redeploy with same image (picks up env var changes only)
+railway redeploy
+
+# Note: After changing BOTH code AND env vars, run railway redeploy first
+# (to pick up env vars), then railway up (to push new code)
+```
+
+### Frontend Build (Cloudflare Pages)
+Build settings in Cloudflare Pages dashboard:
+- **Build command:** `npm run build`
+- **Build output:** `dist`
+- **Root directory:** `apps/investor_portal/frontend/investor_portal`
+- **Environment variable:** `VITE_API_BASE_URL=https://api.tovitotrader.com`
+
 ## Development & Test Environment
 
 Environment configs exist in `config/` (.env.development, .env.production) but full separation is still being built out.
@@ -381,12 +459,21 @@ TRADIER_ACCOUNT_ID=...
 # Database
 DATABASE_PATH=data/tovito.db
 
-# Email (Gmail SMTP)
+# Email transport selection
+EMAIL_PROVIDER=smtp             # 'smtp' (local default) or 'resend' (production/Railway)
+
+# SMTP settings (used when EMAIL_PROVIDER=smtp)
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME=...              # Note: code reads SMTP_USERNAME first, falls back to SMTP_USER
-SMTP_PASSWORD=...              # Gmail app password
-SMTP_FROM_EMAIL=...
+SMTP_PASSWORD=...              # Gmail app password or Zoho app-specific password
+
+# Resend settings (used when EMAIL_PROVIDER=resend — for Railway where SMTP is blocked)
+RESEND_API_KEY=...             # API key from https://resend.com (free tier: 100/day, 3000/mo)
+
+# Email common
+SMTP_FROM_EMAIL=...            # Sender address (used by both transports)
+SMTP_FROM_NAME=Tovito Trader   # Display name in From header
 ADMIN_EMAIL=...                # Note: code reads ALERT_EMAIL first, falls back to ADMIN_EMAIL
 
 # Discord bot (for pinned NAV message)
