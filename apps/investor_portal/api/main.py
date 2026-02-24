@@ -29,9 +29,39 @@ async def lifespan(app: FastAPI):
     print(f"[START] Fund API starting...")
     print(f"   Environment: {settings.ENV}")
     print(f"   Database: {settings.DATABASE_PATH}")
+    _ensure_db_views()
     yield
     # Shutdown
     print("[STOP] Fund API shutting down...")
+
+
+def _ensure_db_views():
+    """Create SQL views if they don't exist (idempotent).
+
+    Views are defined in schema_v2.py but only created during full
+    database initialization.  The API needs them at runtime (e.g.
+    v_monthly_performance for /analysis/monthly-performance), so we
+    create them here on every startup to be safe.
+    """
+    try:
+        from src.database.schema_v2 import VIEWS
+        from .models.database import get_connection
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            for view_name, view_sql in VIEWS.items():
+                cursor.execute(view_sql)   # CREATE VIEW IF NOT EXISTS
+            conn.commit()
+            print(f"   [OK] Database views verified ({len(VIEWS)} views)")
+        finally:
+            conn.close()
+    except Exception as e:
+        # Non-fatal — log and continue
+        try:
+            print(f"   [WARN] Could not verify database views: {e}")
+        except UnicodeEncodeError:
+            print(f"   [WARN] Could not verify database views: {ascii(str(e))}")
 
 
 # Create FastAPI app
