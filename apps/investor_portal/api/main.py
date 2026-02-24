@@ -30,18 +30,22 @@ async def lifespan(app: FastAPI):
     print(f"   Environment: {settings.ENV}")
     print(f"   Database: {settings.DATABASE_PATH}")
     _ensure_db_views()
+    _refresh_benchmark_cache()
     yield
     # Shutdown
     print("[STOP] Fund API shutting down...")
 
 
 def _ensure_db_views():
-    """Create SQL views if they don't exist (idempotent).
+    """Drop and recreate SQL views on every startup.
 
     Views are defined in schema_v2.py but only created during full
     database initialization.  The API needs them at runtime (e.g.
-    v_monthly_performance for /analysis/monthly-performance), so we
-    create them here on every startup to be safe.
+    v_monthly_performance for /analysis/monthly-performance).
+
+    We drop-then-create (not just CREATE IF NOT EXISTS) so that
+    schema changes to views are picked up on deploy without needing
+    a manual migration.  Views contain no data, so this is safe.
     """
     try:
         from src.database.schema_v2 import VIEWS
@@ -51,7 +55,8 @@ def _ensure_db_views():
         cursor = conn.cursor()
         try:
             for view_name, view_sql in VIEWS.items():
-                cursor.execute(view_sql)   # CREATE VIEW IF NOT EXISTS
+                cursor.execute(f"DROP VIEW IF EXISTS {view_name}")
+                cursor.execute(view_sql)
             conn.commit()
             print(f"   [OK] Database views verified ({len(VIEWS)} views)")
         finally:
@@ -62,6 +67,32 @@ def _ensure_db_views():
             print(f"   [WARN] Could not verify database views: {e}")
         except UnicodeEncodeError:
             print(f"   [WARN] Could not verify database views: {ascii(str(e))}")
+
+
+def _refresh_benchmark_cache():
+    """Refresh benchmark price cache on startup (non-fatal).
+
+    The daily NAV pipeline runs on Windows and populates the cache,
+    but Railway may have stale data.  This ensures the cache is
+    reasonably fresh whenever the API starts or redeploys.
+    """
+    try:
+        from pathlib import Path
+        from src.market_data.benchmarks import refresh_benchmark_cache
+        from .config import get_database_path
+
+        db_path = Path(get_database_path())
+        stats = refresh_benchmark_cache(db_path, lookback_days=400)
+        total = sum(stats.values())
+        print(f"   [OK] Benchmark cache refreshed ({total} new prices)")
+    except ImportError:
+        print("   [WARN] yfinance not available - benchmark cache not refreshed")
+    except Exception as e:
+        # Non-fatal — log and continue
+        try:
+            print(f"   [WARN] Benchmark cache refresh failed: {e}")
+        except UnicodeEncodeError:
+            print(f"   [WARN] Benchmark cache refresh failed: {ascii(str(e))}")
 
 
 # Create FastAPI app

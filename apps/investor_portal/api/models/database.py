@@ -138,6 +138,9 @@ def get_investor_position(investor_id: str) -> Optional[Dict]:
         total_shares = nav["total_shares"] or 1
         portfolio_percentage = (current_shares / total_shares * 100) if total_shares > 0 else 0
 
+        # Average cost per share
+        avg_cost_per_share = round(net_investment / current_shares, 4) if current_shares > 0 else 0.0
+
         # Tax and eligible withdrawal calculations
         unrealized_gain = max(0, current_value - net_investment)
         estimated_tax_liability = round(unrealized_gain * settings.TAX_RATE, 2)
@@ -154,6 +157,7 @@ def get_investor_position(investor_id: str) -> Optional[Dict]:
             "total_return_dollars": round(total_return_dollars, 2),
             "total_return_percent": round(total_return_percent, 2),
             "portfolio_percentage": round(portfolio_percentage, 2),
+            "avg_cost_per_share": avg_cost_per_share,
             "unrealized_gain": round(unrealized_gain, 2),
             "estimated_tax_liability": estimated_tax_liability,
             "eligible_withdrawal": eligible_withdrawal,

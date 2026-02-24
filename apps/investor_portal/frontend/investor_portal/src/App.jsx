@@ -1168,6 +1168,7 @@ const BenchmarkChart = () => {
   const [days, setDays] = useState(90);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [noData, setNoData] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [tooltipData, setTooltipData] = useState(null);
   const [latestData, setLatestData] = useState(null);
@@ -1183,6 +1184,7 @@ const BenchmarkChart = () => {
     const fetchAndRender = async () => {
       setLoading(true);
       setError(false);
+      setNoData(false);
       setTooltipData(null);
 
       try {
@@ -1192,6 +1194,15 @@ const BenchmarkChart = () => {
         if (!res.ok) throw new Error('Fetch failed');
         const data = await res.json();
         if (cancelled) return;
+
+        // Guard: need at least 2 data points to render a chart
+        if (!data.fund || data.fund.length < 2) {
+          if (!cancelled) {
+            setNoData(true);
+            setLoading(false);
+          }
+          return;
+        }
 
         // Store latest values for the legend
         const latest = {
@@ -1224,6 +1235,7 @@ const BenchmarkChart = () => {
   }, [days, retryCount, getAuthHeaders]);
 
   const renderChart = (data) => {
+    try {
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -1348,6 +1360,10 @@ const BenchmarkChart = () => {
     ro.observe(container);
 
     chart.timeScale().fitContent();
+    } catch (err) {
+      console.error('Chart render error:', err);
+      setError(true);
+    }
   };
 
   const formatPct = (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '—';
@@ -1383,16 +1399,30 @@ const BenchmarkChart = () => {
         <div className="h-[380px] flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
         </div>
-      ) : error ? (
+      ) : (error || noData) ? (
         <div className="h-[380px] flex flex-col items-center justify-center text-gray-400">
           <AlertCircle className="w-8 h-8 mb-2" />
-          <p className="text-sm">Chart unavailable</p>
-          <button
-            onClick={() => setRetryCount(c => c + 1)}
-            className="mt-2 text-xs text-blue-500 hover:underline"
-          >
-            Retry
-          </button>
+          <p className="text-sm">
+            {noData
+              ? 'Not enough data for this time range.'
+              : 'Chart unavailable'}
+          </p>
+          <div className="flex gap-3 mt-2">
+            {noData && days < 365 && (
+              <button
+                onClick={() => setDays(365)}
+                className="text-xs text-blue-500 hover:underline"
+              >
+                Try 1Y
+              </button>
+            )}
+            <button
+              onClick={() => setRetryCount(c => c + 1)}
+              className="text-xs text-blue-500 hover:underline"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       ) : (
         <div className="relative">
@@ -2016,10 +2046,11 @@ const PortfolioAnalysis = () => {
 const Dashboard = () => {
   const { user, logout } = useAuth();
   const [dashboardView, setDashboardView] = useState('main');
+  const [showAllTx, setShowAllTx] = useState(false);
   const { data: position, refetch: refetchPosition } = useApi('/investor/position');
   const { data: navData } = useApi('/nav/current');
   const { data: performance } = useApi('/nav/performance');
-  const { data: transactions } = useApi('/investor/transactions?limit=5');
+  const { data: transactions } = useApi(`/investor/transactions?limit=${showAllTx ? 200 : 5}`);
 
   const formatCurrency = (val) => {
     if (val === undefined || val === null) return '$--';
@@ -2122,10 +2153,10 @@ const Dashboard = () => {
             trend={navData?.daily_change_percent >= 0 ? 'up' : 'down'}
           />
           <StatCard
-            title="Portfolio Share"
-            value={`${position?.portfolio_percentage?.toFixed(2) || '--'}%`}
-            subtitle="of total fund"
-            icon={User}
+            title="Avg Cost Per Share"
+            value={`$${position?.avg_cost_per_share?.toFixed(4) || '--'}`}
+            subtitle="cost basis per share"
+            icon={DollarSign}
           />
         </div>
 
@@ -2135,91 +2166,50 @@ const Dashboard = () => {
         {/* Portfolio Analysis */}
         <PortfolioAnalysis />
 
-        {/* Two Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Performance Card */}
-          <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Fund Performance</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500">Daily</p>
-                <p className={`text-xl font-bold ${performance?.daily_return >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {performance?.daily_return >= 0 ? '+' : ''}{performance?.daily_return?.toFixed(2) || '0.00'}%
-                </p>
-              </div>
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500">Month-to-Date</p>
-                <p className={`text-xl font-bold ${performance?.mtd_return >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {performance?.mtd_return >= 0 ? '+' : ''}{performance?.mtd_return?.toFixed(2) || '0.00'}%
-                </p>
-              </div>
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500">Year-to-Date</p>
-                <p className={`text-xl font-bold ${performance?.ytd_return >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {performance?.ytd_return >= 0 ? '+' : ''}{performance?.ytd_return?.toFixed(2) || '0.00'}%
-                </p>
-              </div>
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500">Since Inception</p>
-                <p className={`text-xl font-bold ${performance?.since_inception >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {performance?.since_inception >= 0 ? '+' : ''}{performance?.since_inception?.toFixed(2) || '0.00'}%
-                </p>
-              </div>
-            </div>
-            
-            <div className="mt-6 pt-6 border-t border-gray-100">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">Fund Size</span>
-                <span className="font-semibold">{formatCurrency(performance?.total_portfolio_value)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm mt-2">
-                <span className="text-gray-500">Active Investors</span>
-                <span className="font-semibold">{performance?.total_investors || '--'}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm mt-2">
-                <span className="text-gray-500">Inception Date</span>
-                <span className="font-semibold">{performance?.inception_date || '--'}</span>
-              </div>
-            </div>
+        {/* Transaction History */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">
+              {showAllTx ? 'All Transactions' : 'Recent Transactions'}
+            </h3>
+            <button
+              onClick={() => setShowAllTx(!showAllTx)}
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+            >
+              {showAllTx ? 'Show Recent' : 'Show All'}
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
 
-          {/* Recent Transactions */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Recent Transactions</h3>
-              <FileText className="w-5 h-5 text-gray-400" />
+          {transactions?.transactions?.length > 0 ? (
+            <div className={showAllTx ? 'max-h-96 overflow-y-auto' : ''}>
+              {transactions.transactions.map((tx, i) => (
+                <TransactionRow key={i} transaction={tx} />
+              ))}
             </div>
-            
-            {transactions?.transactions?.length > 0 ? (
-              <div>
-                {transactions.transactions.map((tx, i) => (
-                  <TransactionRow key={i} transaction={tx} />
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <Clock className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                <p>No transactions yet</p>
-              </div>
-            )}
-            
-            <div className="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-500">
-              <div className="flex justify-between">
-                <span>Total Contributions</span>
-                <span className="text-green-600 font-medium">{formatCurrency(transactions?.total_contributions)}</span>
-              </div>
-              <div className="flex justify-between mt-1">
-                <span>Total Withdrawals</span>
-                <span className="text-red-600 font-medium">{formatCurrency(transactions?.total_withdrawals)}</span>
-              </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <Clock className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+              <p>No transactions yet</p>
+            </div>
+          )}
+
+          <div className="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-500">
+            <div className="flex justify-between">
+              <span>Total Contributions</span>
+              <span className="text-green-600 font-medium">{formatCurrency(transactions?.total_contributions)}</span>
+            </div>
+            <div className="flex justify-between mt-1">
+              <span>Total Withdrawals</span>
+              <span className="text-red-600 font-medium">{formatCurrency(transactions?.total_withdrawals)}</span>
             </div>
           </div>
         </div>
 
         {/* Account Summary */}
-        <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Summary</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
             <div>
               <p className="text-sm text-gray-500">Net Investment</p>
               <p className="text-xl font-bold text-gray-900">{formatCurrency(position?.net_investment)}</p>
@@ -2233,8 +2223,16 @@ const Dashboard = () => {
               <p className="text-xl font-bold text-gray-900">{position?.current_shares?.toLocaleString('en-US', { maximumFractionDigits: 4 }) || '--'}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Investor ID</p>
-              <p className="text-xl font-bold text-gray-900">{position?.investor_id || '--'}</p>
+              <p className="text-sm text-gray-500">Avg Cost Per Share</p>
+              <p className="text-xl font-bold text-gray-900">${position?.avg_cost_per_share?.toFixed(4) || '--'}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Fund Size</p>
+              <p className="text-xl font-bold text-gray-900">{formatCurrency(performance?.total_portfolio_value)}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Inception Date</p>
+              <p className="text-xl font-bold text-gray-900">{performance?.inception_date || '--'}</p>
             </div>
           </div>
         </div>

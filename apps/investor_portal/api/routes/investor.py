@@ -59,7 +59,10 @@ class PositionResponse(BaseModel):
     
     # Fund share
     portfolio_percentage: float
-    
+
+    # Cost basis
+    avg_cost_per_share: float
+
     # Metadata
     as_of_date: str
 

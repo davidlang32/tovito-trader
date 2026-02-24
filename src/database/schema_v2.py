@@ -677,22 +677,30 @@ VIEWS = {
     WHERE i.status = 'Active' AND i.is_deleted = 0
     """,
     
-    # Monthly performance
+    # Monthly performance (uses window functions for O(n) single-pass)
     "v_monthly_performance": """
     CREATE VIEW IF NOT EXISTS v_monthly_performance AS
-    SELECT 
-        strftime('%Y-%m', date) as month,
+    WITH ranked AS (
+        SELECT
+            strftime('%Y-%m', date) as month,
+            nav_per_share,
+            ROW_NUMBER() OVER (
+                PARTITION BY strftime('%Y-%m', date) ORDER BY date ASC
+            ) as rn_asc,
+            ROW_NUMBER() OVER (
+                PARTITION BY strftime('%Y-%m', date) ORDER BY date DESC
+            ) as rn_desc
+        FROM daily_nav
+    )
+    SELECT
+        month,
+        MAX(CASE WHEN rn_asc = 1 THEN nav_per_share END) as start_nav,
+        MAX(CASE WHEN rn_desc = 1 THEN nav_per_share END) as end_nav,
         MIN(nav_per_share) as min_nav,
         MAX(nav_per_share) as max_nav,
-        (SELECT nav_per_share FROM daily_nav d2 
-         WHERE strftime('%Y-%m', d2.date) = strftime('%Y-%m', d1.date) 
-         ORDER BY d2.date ASC LIMIT 1) as start_nav,
-        (SELECT nav_per_share FROM daily_nav d2 
-         WHERE strftime('%Y-%m', d2.date) = strftime('%Y-%m', d1.date) 
-         ORDER BY d2.date DESC LIMIT 1) as end_nav,
         COUNT(*) as trading_days
-    FROM daily_nav d1
-    GROUP BY strftime('%Y-%m', date)
+    FROM ranked
+    GROUP BY month
     ORDER BY month
     """
 }
