@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
     print(f"   Database: {settings.DATABASE_PATH}")
     _ensure_db_views()
     _refresh_benchmark_cache()
+    _run_data_migrations()
     yield
     # Shutdown
     print("[STOP] Fund API shutting down...")
@@ -93,6 +94,41 @@ def _refresh_benchmark_cache():
             print(f"   [WARN] Benchmark cache refresh failed: {e}")
         except UnicodeEncodeError:
             print(f"   [WARN] Benchmark cache refresh failed: {ascii(str(e))}")
+
+
+def _run_data_migrations():
+    """Run one-time data migrations on startup (non-fatal).
+
+    These are idempotent operations that fix data issues discovered
+    in production.  Safe to run repeatedly — they check before acting.
+    """
+    try:
+        from .models.database import get_connection
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            # Phase 10: Soft-delete test transactions (IDs 1, 2)
+            # These are +100/-100 test entries from Jan 14 that net to zero
+            cursor.execute("""
+                UPDATE transactions
+                SET is_deleted = 1
+                WHERE transaction_id IN (1, 2)
+                  AND ABS(amount) = 100
+                  AND (is_deleted IS NULL OR is_deleted = 0)
+            """)
+            if cursor.rowcount > 0:
+                conn.commit()
+                print(f"   [OK] Data migration: soft-deleted {cursor.rowcount} test transactions")
+            else:
+                print("   [OK] Data migrations: nothing to do")
+        finally:
+            conn.close()
+    except Exception as e:
+        try:
+            print(f"   [WARN] Data migration failed: {e}")
+        except UnicodeEncodeError:
+            print(f"   [WARN] Data migration failed: {ascii(str(e))}")
 
 
 # Create FastAPI app
