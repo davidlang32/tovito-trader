@@ -209,6 +209,14 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
     - **Configurable portal URL**: New `PORTAL_BASE_URL` setting in API config (default: `http://localhost:3000`). Verification and reset email links use this instead of hardcoded localhost. Env var: `PORTAL_BASE_URL`.
     - **Improved verification email**: Added password requirements to the email body so investors know what to prepare before clicking the setup link.
     - **Auth service test suite**: New `tests/test_auth_service.py` (40 tests) covering: password validation rules, bcrypt hashing, initiate/complete verification, login with lockout tracking, password reset flow, and end-to-end registration + reset integration tests.
+13. **Investor Portal Production Redesign** (Phase 10) — Dashboard overhaul based on first production review. 595 tests.
+    - **Avg Cost Per Share**: New `avg_cost_per_share` field in `get_investor_position()` (database.py) and `PositionResponse` model. Replaces "Portfolio Share" stat card on dashboard. Also shown in expanded Account Summary.
+    - **Dashboard layout**: Removed Fund Performance section (fund-level returns inappropriate for individual investor view). Expanded Account Summary from 4 to 6 fields (added Avg Cost/Share, Fund Size, Inception Date). Recent Transactions made full-width with "Show All / Show Recent" toggle (fetches up to 200 transactions).
+    - **Benchmark chart error handling**: Added `noData` state and try/catch in `renderChart()` for TradingView Lightweight Charts. Handles empty data gracefully with "Not enough data for this range" message and suggested range button.
+    - **SQL view optimization**: Rewrote `v_monthly_performance` from O(n^2) correlated subqueries to O(n) using `ROW_NUMBER()` window functions.
+    - **API startup pipeline**: Added `_refresh_benchmark_cache()` (fetches Yahoo Finance data for SPY/QQQ/BTC-USD on startup, essential for Railway where daily pipeline doesn't run) and `_run_data_migrations()` (idempotent one-time data fixes). Changed `_ensure_db_views()` to drop-then-create so schema changes to views take effect on deploy without manual migration.
+    - **Test transaction cleanup**: Soft-deleted +100/-100 test transactions (IDs 1, 2) via startup data migration. Queries already filter `is_deleted = 1`.
+    - **useApi infinite loop fix**: The React `useApi` hook had `options = {}` default parameter creating a new object on every render, causing infinite re-render loop (~800 API requests/sec). Fixed by using `useRef` for `options` and `getAuthHeaders` so only `endpoint` string changes trigger re-fetches.
 
 ## Production Deployment (Launched Feb 2026)
 
@@ -265,10 +273,11 @@ Local development uses SMTP (no changes to local `.env` needed). Production uses
 
 ### Deployment Commands
 ```powershell
-# Deploy code to Railway (pushes local files, triggers build)
-railway up
+# Standard deploy: push code to GitHub then deploy backend
+git push origin main              # Triggers Cloudflare Pages frontend rebuild automatically
+railway up                        # Pushes code to Railway, triggers backend build
 
-# View Railway logs
+# View Railway logs (check startup messages, errors)
 railway logs
 
 # SSH into Railway container
@@ -281,6 +290,14 @@ railway redeploy
 # (to pick up env vars), then railway up (to push new code)
 ```
 
+### API Startup Pipeline (`main.py` lifespan)
+On every API startup (local dev or Railway deploy), these run in order:
+1. **`_ensure_db_views()`** — Drops and recreates all SQL views from `schema_v2.py`. Ensures view schema changes take effect without manual migration.
+2. **`_refresh_benchmark_cache()`** — Fetches latest SPY/QQQ/BTC-USD prices via yfinance into `benchmark_prices` table. Essential for Railway where the daily NAV pipeline doesn't run.
+3. **`_run_data_migrations()`** — Idempotent one-time data fixes (e.g., soft-deleting test transactions). Safe to run repeatedly — checks before acting.
+
+All three are non-fatal (wrapped in try/except). If any fail, the API still starts.
+
 ### Frontend Build (Cloudflare Pages)
 Build settings in Cloudflare Pages dashboard:
 - **Build command:** `npm run build`
@@ -290,14 +307,30 @@ Build settings in Cloudflare Pages dashboard:
 
 ## Development & Test Environment
 
-Environment configs exist in `config/` (.env.development, .env.production) but full separation is still being built out.
+### Development Workflow (Local → GitHub → Production)
 
-**Principles:**
+All development happens **locally on Windows**. The flow is one-directional:
+
+1. **Develop & test locally** — edit code, run `pytest tests/ -v`, test the frontend/API on localhost
+2. **Commit & push to GitHub** — `git push origin main`
+3. **Deploy to production:**
+   - **Frontend** auto-deploys: Cloudflare Pages watches the GitHub repo and rebuilds on push
+   - **Backend** requires manual deploy: `railway up` (pushes code and triggers build on Railway)
+   - If **only env vars** changed on Railway: `railway redeploy` (no code push needed)
+   - If **both** code and env vars changed: `railway redeploy` first, then `railway up`
+
+**Local and production databases are completely independent.** The local `data/tovito.db` and Railway's `/app/data/tovito.db` never sync automatically. Password changes, data migrations, and NAV updates on one do not affect the other.
+
+**When to mention environment:** Only specify "dev" or "prod" when discussing something environment-specific (e.g., "my password doesn't work in dev", "Railway logs show an error"). Otherwise, all work is assumed to be local development.
+
+### Principles
 - **Never develop or test against production data.** Use `scripts/setup/setup_test_database.py` to create synthetic test databases.
 - **All new features must be developed in the dev environment first**, validated in test, then promoted to production.
 - **Test data must be fully synthetic** — no real investor names, emails, or financial data in test fixtures.
 - **Config-driven environment switching** — scripts should read from the appropriate .env file based on context.
 - **Goal:** Eventually support `--env dev|test|prod` flag across all scripts.
+
+Environment configs exist in `config/` (.env.development, .env.production) but full separation is still being built out.
 
 ## Automation & Regression Testing
 
