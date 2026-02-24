@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from 'react';
 import {
   TrendingUp, TrendingDown, DollarSign, PieChart,
   LogOut, RefreshCw, ArrowUpRight, ArrowDownRight,
@@ -124,19 +124,26 @@ const AuthProvider = ({ children }) => {
 // API HOOKS
 // ============================================================
 
-const useApi = (endpoint, options = {}) => {
+const useApi = (endpoint, options) => {
   const { getAuthHeaders } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Keep a stable ref for options and auth headers so they never
+  // invalidate the useCallback / useEffect and cause infinite loops.
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const getAuthRef = useRef(getAuthHeaders);
+  getAuthRef.current = getAuthHeaders;
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-        headers: getAuthHeaders(),
-        ...options
+        headers: getAuthRef.current(),
+        ...(optionsRef.current || {})
       });
       if (!res.ok) throw new Error('Failed to fetch');
       const json = await res.json();
@@ -146,7 +153,7 @@ const useApi = (endpoint, options = {}) => {
     } finally {
       setLoading(false);
     }
-  }, [endpoint, getAuthHeaders, options]);
+  }, [endpoint]);
 
   useEffect(() => {
     fetchData();
