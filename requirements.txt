@@ -26,5 +26,8 @@ pandas>=2.0.0
 # Encryption (investor profiles PII)
 cryptography>=42.0.0
 
+# HTTP client (used by Resend email API and other HTTP calls)
+requests>=2.31.0
+
 # Environment
 python-dotenv>=1.0.0

@@ -64,3 +64,9 @@ test_reports/
 
 # Plan files (session-specific)
 PLAN.md
+
+# Temporary database transfer artifacts
+chunk_*.txt
+db_b64.txt
+data/tovito.zip
+scripts/utilities/upload_db_to_railway.py
