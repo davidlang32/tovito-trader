@@ -169,6 +169,109 @@ def get_investor_position(investor_id: str) -> Optional[Dict]:
 
 
 # ============================================================
+# Value History (for portfolio value chart)
+# ============================================================
+
+def get_investor_value_history(investor_id: str, days: int = 90) -> List[Dict]:
+    """Compute investor's portfolio value for each day in the given range.
+
+    For each day of NAV data, reconstruct the investor's share count
+    (running total from transactions) and multiply by that day's NAV.
+
+    Returns list of dicts with: date, portfolio_value, shares,
+    nav_per_share, daily_change_pct, transaction_type, transaction_amount.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Get all transactions for this investor (oldest first), excluding deleted
+        cursor.execute("""
+            SELECT date, transaction_type, shares_transacted, amount
+            FROM transactions
+            WHERE investor_id = ?
+              AND (is_deleted IS NULL OR is_deleted = 0)
+            ORDER BY date ASC, transaction_id ASC
+        """, (investor_id,))
+        txns = cursor.fetchall()
+
+        if not txns:
+            return []
+
+        # Build a date -> cumulative shares map
+        # Also track transactions by date for markers
+        cumulative_shares = 0.0
+        shares_by_date = {}  # date -> cumulative shares after all txns that day
+        txn_by_date = {}     # date -> (type, amount) for the last txn that day
+
+        for t in txns:
+            cumulative_shares += t["shares_transacted"]
+            shares_by_date[t["date"]] = cumulative_shares
+            txn_by_date[t["date"]] = (t["transaction_type"], t["amount"])
+
+        # Get NAV history for the requested range
+        cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        cursor.execute("""
+            SELECT date, nav_per_share, daily_change_percent
+            FROM daily_nav
+            WHERE date >= ?
+            ORDER BY date ASC
+        """, (cutoff,))
+        nav_rows = cursor.fetchall()
+
+        if not nav_rows:
+            return []
+
+        # Walk through NAV dates, carrying forward the latest known share count
+        result = []
+        current_shares = 0.0
+
+        # Find the share count just before our window starts
+        # (investor may have had shares before the cutoff)
+        first_nav_date = nav_rows[0]["date"]
+        for t_date, s in sorted(shares_by_date.items()):
+            if t_date < first_nav_date:
+                current_shares = s
+            else:
+                break
+
+        for nav_row in nav_rows:
+            d = nav_row["date"]
+
+            # Update shares if there was a transaction on this date
+            if d in shares_by_date:
+                current_shares = shares_by_date[d]
+
+            if current_shares <= 0:
+                continue
+
+            portfolio_value = round(current_shares * nav_row["nav_per_share"], 2)
+
+            point = {
+                "date": d,
+                "portfolio_value": portfolio_value,
+                "shares": round(current_shares, 4),
+                "nav_per_share": round(nav_row["nav_per_share"], 4),
+                "daily_change_pct": round(nav_row["daily_change_percent"], 2) if nav_row["daily_change_percent"] is not None else None,
+                "transaction_type": None,
+                "transaction_amount": None,
+            }
+
+            # Add transaction marker if applicable
+            if d in txn_by_date:
+                t_type, t_amount = txn_by_date[d]
+                point["transaction_type"] = t_type
+                point["transaction_amount"] = round(abs(t_amount), 2)
+
+            result.append(point)
+
+        return result
+
+    finally:
+        conn.close()
+
+
+# ============================================================
 # Transactions
 # ============================================================
 
@@ -211,10 +314,10 @@ def get_investor_transactions(
         cursor.execute(query, params)
         transactions = [dict(row) for row in cursor.fetchall()]
         
-        # Get totals
+        # Get totals (include 'Initial' deposits in contributions total)
         cursor.execute("""
-            SELECT 
-                SUM(CASE WHEN transaction_type = 'Contribution' THEN amount ELSE 0 END) as contributions,
+            SELECT
+                SUM(CASE WHEN transaction_type IN ('Contribution', 'Initial') THEN amount ELSE 0 END) as contributions,
                 SUM(CASE WHEN transaction_type = 'Withdrawal' THEN ABS(amount) ELSE 0 END) as withdrawals
             FROM transactions
             WHERE investor_id = ? AND (is_deleted IS NULL OR is_deleted = 0)
@@ -621,3 +724,694 @@ def get_fund_flow_estimate(investor_id: str, flow_type: str, amount: float) -> D
             "eligible_withdrawal": eligible_withdrawal,
             "note": "Tax settled quarterly — full withdrawal amount disbursed.",
         }
+
+
+# ============================================================
+# Public / Teaser Stats (no authentication required)
+# ============================================================
+
+def get_teaser_stats() -> Dict:
+    """Get public-facing teaser stats for the landing page.
+
+    Returns only non-sensitive aggregate data:
+    - since_inception_pct: Fund return since inception
+    - inception_date: When the fund started
+    - total_investors: Number of active investors
+    - trading_days: Number of NAV entries
+    - as_of_date: Date of the latest NAV
+
+    Does NOT expose portfolio value, NAV per share, or any
+    dollar amounts. This function defines the public data boundary.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Get inception and latest NAV for return calculation
+        cursor.execute("""
+            SELECT date, nav_per_share
+            FROM daily_nav
+            ORDER BY date ASC
+            LIMIT 1
+        """)
+        inception = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT date, nav_per_share
+            FROM daily_nav
+            ORDER BY date DESC
+            LIMIT 1
+        """)
+        latest = cursor.fetchone()
+
+        # Trading days count
+        cursor.execute("SELECT COUNT(*) as cnt FROM daily_nav")
+        trading_days = cursor.fetchone()["cnt"]
+
+        # Active investor count
+        cursor.execute("""
+            SELECT COUNT(*) as cnt FROM investors WHERE status = 'Active'
+        """)
+        total_investors = cursor.fetchone()["cnt"]
+
+        # Calculate since-inception return
+        if inception and latest and inception["nav_per_share"] > 0:
+            since_inception_pct = round(
+                ((latest["nav_per_share"] / inception["nav_per_share"]) - 1) * 100,
+                2
+            )
+        else:
+            since_inception_pct = 0.0
+
+        return {
+            "since_inception_pct": since_inception_pct,
+            "inception_date": str(inception["date"]) if inception else "2026-01-01",
+            "total_investors": total_investors,
+            "trading_days": trading_days,
+            "as_of_date": str(latest["date"]) if latest else str(date.today()),
+        }
+
+    finally:
+        conn.close()
+
+
+# ============================================================
+# Prospect Management (landing page inquiries)
+# ============================================================
+
+def create_prospect(
+    name: str,
+    email: str,
+    phone: Optional[str] = None,
+    message: Optional[str] = None,
+    source: str = 'landing_page',
+) -> Dict:
+    """Insert a prospect into the prospects table.
+
+    Handles duplicate emails gracefully (UNIQUE constraint on email).
+
+    Args:
+        name: Prospect's full name
+        email: Prospect's email address
+        phone: Optional phone number
+        message: Optional message / investment goals
+        source: How the prospect was acquired (default: 'landing_page')
+
+    Returns:
+        Dict with keys: success, prospect_id, is_duplicate, message
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO prospects (name, email, phone, date_added, status, source, notes,
+                                   created_at, updated_at)
+            VALUES (?, ?, ?, date('now'), 'Active', ?, ?, datetime('now'), datetime('now'))
+        """, (name, email, phone, source, message))
+
+        conn.commit()
+        return {
+            "success": True,
+            "prospect_id": cursor.lastrowid,
+            "is_duplicate": False,
+            "message": "Inquiry received successfully.",
+        }
+
+    except sqlite3.IntegrityError:
+        # Duplicate email — return success-like response (email enumeration safe)
+        return {
+            "success": True,
+            "prospect_id": None,
+            "is_duplicate": True,
+            "message": "Inquiry received successfully.",
+        }
+
+    finally:
+        conn.close()
+
+
+# ============================================================
+# Admin Sync (Production Database Updates)
+# ============================================================
+
+def upsert_daily_nav(row: Dict) -> bool:
+    """Insert or replace a daily NAV record. Used by production sync.
+
+    Args:
+        row: Dict with keys: date, nav_per_share, total_portfolio_value,
+             total_shares, daily_change_dollars, daily_change_percent
+    Returns:
+        True if successful
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO daily_nav (
+                date, nav_per_share, total_portfolio_value, total_shares,
+                daily_change_dollars, daily_change_percent, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(date) DO UPDATE SET
+                nav_per_share = excluded.nav_per_share,
+                total_portfolio_value = excluded.total_portfolio_value,
+                total_shares = excluded.total_shares,
+                daily_change_dollars = excluded.daily_change_dollars,
+                daily_change_percent = excluded.daily_change_percent
+        """, (
+            row["date"], row["nav_per_share"], row["total_portfolio_value"],
+            row["total_shares"], row.get("daily_change_dollars", 0),
+            row.get("daily_change_percent", 0),
+        ))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def upsert_holdings_snapshot(header: Dict, positions: List[Dict]) -> int:
+    """Insert or replace a holdings snapshot with positions. Used by production sync.
+
+    Args:
+        header: Dict with keys: date, source, snapshot_time, total_positions
+        positions: List of dicts with position data (symbol, quantity, etc.)
+    Returns:
+        snapshot_id of the upserted snapshot
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Upsert snapshot header
+        cursor.execute("""
+            INSERT INTO holdings_snapshots (date, source, snapshot_time, total_positions)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(date, source) DO UPDATE SET
+                snapshot_time = excluded.snapshot_time,
+                total_positions = excluded.total_positions
+        """, (
+            header["date"], header["source"],
+            header.get("snapshot_time", datetime.now().isoformat()),
+            header.get("total_positions", len(positions)),
+        ))
+
+        # Get the snapshot_id (whether inserted or updated)
+        cursor.execute("""
+            SELECT snapshot_id FROM holdings_snapshots
+            WHERE date = ? AND source = ?
+        """, (header["date"], header["source"]))
+        snapshot_id = cursor.fetchone()["snapshot_id"]
+
+        # Delete existing positions for this snapshot and re-insert
+        cursor.execute(
+            "DELETE FROM position_snapshots WHERE snapshot_id = ?",
+            (snapshot_id,)
+        )
+
+        for pos in positions:
+            cursor.execute("""
+                INSERT INTO position_snapshots (
+                    snapshot_id, symbol, underlying_symbol, quantity,
+                    instrument_type, average_open_price, close_price,
+                    market_value, cost_basis, unrealized_pl,
+                    option_type, strike, expiration_date, multiplier
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                snapshot_id, pos["symbol"], pos.get("underlying_symbol"),
+                pos["quantity"], pos.get("instrument_type"),
+                pos.get("average_open_price"), pos.get("close_price"),
+                pos.get("market_value"), pos.get("cost_basis"),
+                pos.get("unrealized_pl"), pos.get("option_type"),
+                pos.get("strike"), pos.get("expiration_date"),
+                pos.get("multiplier"),
+            ))
+
+        conn.commit()
+        return snapshot_id
+    finally:
+        conn.close()
+
+
+def upsert_trades(trades: List[Dict]) -> Dict:
+    """Insert trades, skipping duplicates by source + brokerage_transaction_id.
+
+    Args:
+        trades: List of trade dicts from ETL
+    Returns:
+        Dict with inserted and skipped counts
+    """
+    conn = get_connection()
+    inserted = 0
+    skipped = 0
+    try:
+        cursor = conn.cursor()
+        for trade in trades:
+            # Check for existing trade by source + brokerage_transaction_id
+            brokerage_txn_id = trade.get("brokerage_transaction_id")
+            source = trade.get("source", "tastytrade")
+            if brokerage_txn_id:
+                cursor.execute("""
+                    SELECT trade_id FROM trades
+                    WHERE source = ? AND brokerage_transaction_id = ?
+                    AND is_deleted = 0
+                """, (source, brokerage_txn_id))
+                if cursor.fetchone():
+                    skipped += 1
+                    continue
+
+            cursor.execute("""
+                INSERT INTO trades (
+                    date, trade_type, symbol, quantity, price, amount,
+                    option_type, strike, expiration_date,
+                    commission, fees, category, subcategory,
+                    description, notes, source, brokerage_transaction_id,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          datetime('now'), datetime('now'))
+            """, (
+                trade["date"], trade["trade_type"], trade.get("symbol"),
+                trade.get("quantity"), trade.get("price"), trade["amount"],
+                trade.get("option_type"), trade.get("strike"),
+                trade.get("expiration_date"),
+                trade.get("commission", 0), trade.get("fees", 0),
+                trade.get("category"), trade.get("subcategory"),
+                trade.get("description"), trade.get("notes"),
+                source, brokerage_txn_id,
+            ))
+            inserted += 1
+
+        conn.commit()
+        return {"inserted": inserted, "skipped": skipped}
+    finally:
+        conn.close()
+
+
+def upsert_benchmark_prices(prices: List[Dict]) -> int:
+    """Insert benchmark prices, ignoring duplicates. Used by production sync.
+
+    Args:
+        prices: List of dicts with keys: date, ticker, close_price
+    Returns:
+        Number of rows inserted
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        inserted = 0
+        for price in prices:
+            cursor.execute("""
+                INSERT OR IGNORE INTO benchmark_prices (date, ticker, close_price)
+                VALUES (?, ?, ?)
+            """, (price["date"], price["ticker"], price["close_price"]))
+            inserted += cursor.rowcount
+        conn.commit()
+        return inserted
+    finally:
+        conn.close()
+
+
+def upsert_reconciliation(row: Dict) -> bool:
+    """Insert or replace a daily reconciliation record. Used by production sync.
+
+    Args:
+        row: Dict with keys: date, tradier_balance, calculated_portfolio_value,
+             difference, total_shares, nav_per_share, status, notes
+    Returns:
+        True if successful
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO daily_reconciliation (
+                date, tradier_balance, calculated_portfolio_value,
+                difference, total_shares, nav_per_share, status, notes,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        """, (
+            row["date"], row.get("tradier_balance"),
+            row.get("calculated_portfolio_value"), row.get("difference"),
+            row.get("total_shares"), row.get("nav_per_share"),
+            row.get("status", "matched"), row.get("notes"),
+        ))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def upsert_plan_performance(rows: List[Dict]) -> int:
+    """Insert or replace plan daily performance records. Used by production sync.
+
+    Args:
+        rows: List of dicts with keys: date, plan_id, market_value,
+              cost_basis, unrealized_pl, allocation_pct, position_count
+    Returns:
+        Number of rows written
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        count = 0
+        for row in rows:
+            cursor.execute("""
+                INSERT OR REPLACE INTO plan_daily_performance
+                    (date, plan_id, market_value, cost_basis, unrealized_pl,
+                     allocation_pct, position_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                row["date"], row["plan_id"],
+                row.get("market_value", 0),
+                row.get("cost_basis", 0),
+                row.get("unrealized_pl", 0),
+                row.get("allocation_pct", 0),
+                row.get("position_count", 0),
+            ))
+            count += 1
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+
+# ============================================================
+# Prospect Access Token Functions
+# ============================================================
+
+def create_prospect_access_token(prospect_id: int, token: str,
+                                  expires_at: str, created_by: str = "admin") -> int:
+    """Create a new prospect access token. Revokes any existing active tokens first.
+
+    Args:
+        prospect_id: ID of the prospect in the prospects table
+        token: URL-safe unique token string
+        expires_at: ISO format datetime when the token expires
+        created_by: Who created the token (default: 'admin')
+    Returns:
+        token_id of the created token
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Revoke any existing active tokens for this prospect
+        cursor.execute("""
+            UPDATE prospect_access_tokens
+            SET is_revoked = 1
+            WHERE prospect_id = ? AND is_revoked = 0
+        """, (prospect_id,))
+
+        # Insert new token
+        cursor.execute("""
+            INSERT INTO prospect_access_tokens
+                (prospect_id, token, expires_at, created_by)
+            VALUES (?, ?, ?, ?)
+        """, (prospect_id, token, expires_at, created_by))
+
+        token_id = cursor.lastrowid
+        conn.commit()
+        return token_id
+    finally:
+        conn.close()
+
+
+def validate_prospect_token(token: str) -> Optional[Dict]:
+    """Validate a prospect access token and update access tracking.
+
+    Args:
+        token: The token string from the URL
+    Returns:
+        Dict with prospect_id, prospect_name, prospect_email if valid.
+        None if token is invalid, expired, or revoked.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Look up the token with prospect info
+        cursor.execute("""
+            SELECT t.token_id, t.prospect_id, t.expires_at, t.is_revoked,
+                   p.name as prospect_name, p.email as prospect_email
+            FROM prospect_access_tokens t
+            JOIN prospects p ON p.id = t.prospect_id
+            WHERE t.token = ?
+        """, (token,))
+        row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        # Check if revoked
+        if row["is_revoked"]:
+            return None
+
+        # Check if expired
+        from datetime import datetime
+        try:
+            expires = datetime.fromisoformat(row["expires_at"])
+            if datetime.utcnow() > expires:
+                return None
+        except (ValueError, TypeError):
+            return None
+
+        # Update access tracking
+        cursor.execute("""
+            UPDATE prospect_access_tokens
+            SET last_accessed_at = datetime('now'),
+                access_count = access_count + 1
+            WHERE token_id = ?
+        """, (row["token_id"],))
+        conn.commit()
+
+        return {
+            "prospect_id": row["prospect_id"],
+            "prospect_name": row["prospect_name"],
+            "prospect_email": row["prospect_email"],
+        }
+    finally:
+        conn.close()
+
+
+def revoke_prospect_token(prospect_id: int) -> bool:
+    """Revoke all active tokens for a prospect.
+
+    Args:
+        prospect_id: ID of the prospect
+    Returns:
+        True if any tokens were revoked
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE prospect_access_tokens
+            SET is_revoked = 1
+            WHERE prospect_id = ? AND is_revoked = 0
+        """, (prospect_id,))
+        revoked = cursor.rowcount > 0
+        conn.commit()
+        return revoked
+    finally:
+        conn.close()
+
+
+def get_prospect_access_list() -> List[Dict]:
+    """Get all prospects with their access token status.
+
+    Returns:
+        List of dicts with prospect info and token status.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT p.id, p.name, p.email, p.status, p.date_added,
+                   t.token, t.created_at as token_created,
+                   t.expires_at, t.last_accessed_at,
+                   t.access_count, t.is_revoked
+            FROM prospects p
+            LEFT JOIN prospect_access_tokens t ON t.prospect_id = p.id
+                AND t.is_revoked = 0
+            ORDER BY p.date_added DESC
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_prospect_performance_data(days: int = 90) -> Dict:
+    """Get fund performance data formatted for prospect view.
+
+    Returns percentage-only data — NO dollar amounts, NO nav_per_share.
+
+    Args:
+        days: Number of days of data to return
+    Returns:
+        Dict with since_inception_pct, monthly_returns, plan_allocation,
+        benchmark_comparison data.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Since-inception return
+        cursor.execute("""
+            SELECT nav_per_share FROM daily_nav
+            ORDER BY date ASC LIMIT 1
+        """)
+        inception_row = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT nav_per_share, date FROM daily_nav
+            ORDER BY date DESC LIMIT 1
+        """)
+        latest_row = cursor.fetchone()
+
+        since_inception_pct = 0.0
+        inception_date = "2026-01-01"
+        as_of_date = "2026-01-01"
+        trading_days = 0
+
+        if inception_row and latest_row:
+            inception_nav = inception_row["nav_per_share"]
+            latest_nav = latest_row["nav_per_share"]
+            as_of_date = str(latest_row["date"])
+            if inception_nav and inception_nav > 0:
+                since_inception_pct = round(
+                    ((latest_nav / inception_nav) - 1) * 100, 2
+                )
+
+        cursor.execute("SELECT MIN(date) as d FROM daily_nav")
+        inception_row2 = cursor.fetchone()
+        if inception_row2 and inception_row2["d"]:
+            inception_date = str(inception_row2["d"])
+
+        cursor.execute("SELECT COUNT(*) as cnt FROM daily_nav")
+        td_row = cursor.fetchone()
+        if td_row:
+            trading_days = td_row["cnt"]
+
+        # Monthly returns (percentage only)
+        try:
+            cursor.execute("""
+                SELECT month, start_nav, end_nav, trading_days
+                FROM v_monthly_performance
+                ORDER BY month ASC
+            """)
+            monthly_rows = cursor.fetchall()
+        except Exception:
+            monthly_rows = []
+
+        monthly_returns = []
+        for mr in monthly_rows:
+            start_nav = mr["start_nav"]
+            end_nav = mr["end_nav"]
+            ret_pct = 0.0
+            if start_nav and start_nav > 0:
+                ret_pct = round(((end_nav / start_nav) - 1) * 100, 2)
+
+            # Format month label
+            try:
+                from datetime import datetime as dt
+                month_dt = dt.strptime(mr["month"] + "-01", "%Y-%m-%d")
+                month_label = month_dt.strftime("%b %Y")
+            except (ValueError, TypeError):
+                month_label = mr["month"]
+
+            monthly_returns.append({
+                "month": mr["month"],
+                "month_label": month_label,
+                "return_pct": ret_pct,
+                "trading_days": mr["trading_days"] or 0,
+            })
+
+        # Plan allocation (latest)
+        plan_allocation = []
+        try:
+            cursor.execute("""
+                SELECT plan_id, allocation_pct, position_count
+                FROM plan_daily_performance
+                WHERE date = (SELECT MAX(date) FROM plan_daily_performance)
+                ORDER BY allocation_pct DESC
+            """)
+            plan_rows = cursor.fetchall()
+            for pr in plan_rows:
+                plan_allocation.append({
+                    "plan_id": pr["plan_id"],
+                    "allocation_pct": round(pr["allocation_pct"], 1),
+                    "position_count": pr["position_count"],
+                })
+        except Exception:
+            pass
+
+        # Benchmark comparison (fund vs SPY/QQQ)
+        from datetime import date, timedelta
+        cutoff = str(date.today() - timedelta(days=days))
+
+        benchmark_comparison = []
+        # Fund return for the period
+        cursor.execute("""
+            SELECT nav_per_share FROM daily_nav
+            WHERE date >= ? ORDER BY date ASC LIMIT 1
+        """, (cutoff,))
+        fund_start = cursor.fetchone()
+        cursor.execute("""
+            SELECT nav_per_share FROM daily_nav
+            ORDER BY date DESC LIMIT 1
+        """)
+        fund_end = cursor.fetchone()
+
+        fund_return = 0.0
+        if fund_start and fund_end and fund_start["nav_per_share"] > 0:
+            fund_return = round(
+                ((fund_end["nav_per_share"] / fund_start["nav_per_share"]) - 1) * 100, 2
+            )
+
+        for ticker, label in [("SPY", "S&P 500"), ("QQQ", "Nasdaq 100")]:
+            cursor.execute("""
+                SELECT close_price FROM benchmark_prices
+                WHERE ticker = ? AND date >= ?
+                ORDER BY date ASC LIMIT 1
+            """, (ticker, cutoff))
+            b_start = cursor.fetchone()
+
+            cursor.execute("""
+                SELECT close_price FROM benchmark_prices
+                WHERE ticker = ?
+                ORDER BY date DESC LIMIT 1
+            """, (ticker,))
+            b_end = cursor.fetchone()
+
+            b_return = 0.0
+            if b_start and b_end and b_start["close_price"] > 0:
+                b_return = round(
+                    ((b_end["close_price"] / b_start["close_price"]) - 1) * 100, 2
+                )
+
+            benchmark_comparison.append({
+                "ticker": ticker,
+                "label": label,
+                "fund_return_pct": fund_return,
+                "benchmark_return_pct": b_return,
+                "outperformance_pct": round(fund_return - b_return, 2),
+            })
+
+        # Investor count
+        cursor.execute("""
+            SELECT COUNT(*) as cnt FROM investors WHERE status = 'Active'
+        """)
+        inv_row = cursor.fetchone()
+        investor_count = inv_row["cnt"] if inv_row else 0
+
+        return {
+            "since_inception_pct": since_inception_pct,
+            "inception_date": inception_date,
+            "as_of_date": as_of_date,
+            "trading_days": trading_days,
+            "investor_count": investor_count,
+            "monthly_returns": monthly_returns,
+            "plan_allocation": plan_allocation,
+            "benchmark_comparison": benchmark_comparison,
+        }
+    finally:
+        conn.close()

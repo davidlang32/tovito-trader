@@ -1,0 +1,3 @@
+# Discourage all search engine crawling while site is in early access
+User-agent: *
+Disallow: /

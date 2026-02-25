@@ -33,7 +33,7 @@ C:\tovito-trader\
 ├── apps/                    # Application modules
 │   ├── fund_manager/        # Fund admin dashboard (CustomTkinter)
 │   ├── investor_portal/     # Investor-facing web app
-│   │   ├── api/             # FastAPI backend (auth, nav, fund_flow, profile, referral, reports, analysis)
+│   │   ├── api/             # FastAPI backend (auth, nav, fund_flow, profile, referral, reports, analysis, public, admin)
 │   │   └── frontend/        # React + Vite frontend
 │   ├── market_monitor/      # Alert system & live dashboard (Streamlit)
 │   └── ops_dashboard/       # Operations health dashboard (Streamlit, port 8502)
@@ -69,7 +69,7 @@ C:\tovito-trader\
 │   │   ├── launching/       # Application launch tutorial scripts (4 tutorials)
 │   │   ├── templates/       # Jinja2 HTML guide template
 │   │   └── generate_all.py  # Master generation script
-│   ├── utilities/           # Backups, reversals, log viewing
+│   ├── utilities/           # Backups, reversals, log viewing, GitHub sync, weekly restart
 │   └── validation/          # Health checks, reconciliation, comprehensive validation
 ├── src/                     # Core library modules
 │   ├── api/                 # Brokerage API clients (tradier.py, tastytrade_client.py, brokerage.py protocol)
@@ -81,6 +81,7 @@ C:\tovito-trader\
 │   │   ├── transform.py     # Normalize staging rows into canonical trades format
 │   │   └── load.py          # Insert into production trades, update ETL status
 │   ├── monitoring/          # Operations health checks data layer (HealthCheckService, get_remediation)
+│   ├── plans/               # Plan classification system (plan_cash, plan_etf, plan_a)
 │   ├── reporting/           # Chart generation (matplotlib) for PDF reports
 │   ├── streaming/           # Real-time market data streaming
 │   └── utils/               # Safe logging (PIIProtector), encryption (FieldEncryptor), formatting, Discord webhook utilities
@@ -119,6 +120,12 @@ The primary database is `data/tovito.db` using SQLite. Schema defined in `src/da
 
 ### Portal Authentication
 - **investor_auth** — id (INT PK), investor_id (TEXT UNIQUE FK), password_hash (bcrypt, nullable until setup), email_verified (0/1), verification_token/expires (24h), reset_token/expires (1h), last_login, failed_attempts (lockout at 5), locked_until (15 min), created_at/updated_at. Created by `scripts/setup/migrate_add_auth_table.py`. Manual setup via `scripts/setup/verify_investor.py`.
+
+### Plan Performance Tracking
+- **plan_daily_performance** — date (TEXT), plan_id (TEXT: 'plan_cash', 'plan_etf', 'plan_a'), market_value (REAL), cost_basis (REAL), unrealized_pl (REAL), allocation_pct (REAL), position_count (INTEGER). PK(date, plan_id). Populated daily by NAV pipeline Step 4b. Classification logic in `src/plans/classification.py`. Migration: `scripts/setup/migrate_add_plan_performance.py`.
+
+### Prospect Access
+- **prospect_access_tokens** — token_id (INT PK AUTOINCREMENT), prospect_id (INT FK→prospects.id), token (TEXT UNIQUE), created_at (TIMESTAMP), expires_at (TIMESTAMP), last_accessed_at (TIMESTAMP), access_count (INT DEFAULT 0), is_revoked (INT DEFAULT 0), created_by (TEXT DEFAULT 'admin'). One active token per prospect. Migration: `scripts/setup/migrate_add_prospect_access.py`. Indexed on token and prospect_id.
 
 ### Monitoring & Audit
 - **system_logs** — log_id, timestamp, log_type (INFO/WARNING/ERROR/SUCCESS), category, message, details
@@ -184,6 +191,10 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
 4. **Code Reorganization** — Some legacy scripts may still reference old paths or have duplicated logic from pre-reorganization. Ongoing cleanup needed.
 5. **Ops Dashboard in Fund Manager App** — The health check data layer (`src/monitoring/health_checks.py`) is designed UI-agnostic so it can be integrated into the CustomTkinter fund manager dashboard alongside the current Streamlit standalone version.
 6. **Investor Portal Frontend Enhancements** — Daily P&L cards, contribution/withdrawal request forms, profile management pages, referral code sharing. React Router for multi-page navigation.
+7. **Admin Portal** — Separate local-only React app (`apps/admin_portal/`) for the fund manager to view all investor data, troubleshoot what each investor sees, and manage prospects. Never deployed publicly — runs only on localhost. Option A architecture: completely separate from investor portal with its own frontend and potentially its own API routes.
+8. **PII Security Hardening (HIGH PRIORITY)** — Comprehensive security review and hardening for storing sensitive investor PII. Current state: Fernet encryption at rest for SSN, bank details, tax ID in `investor_profiles` via `src/utils/encryption.py`. Future needs: encryption key rotation strategy, field-level access logging (who accessed what PII and when), data retention policies, secure backup procedures for encrypted fields, ENCRYPTION_KEY disaster recovery plan, SOC 2 / regulatory compliance readiness assessment, network-level protections if PII is ever served via API, and penetration testing. Goal: meet the security bar that larger firms maintain for investor data — defense in depth, principle of least privilege, auditable access trails. This is a prerequisite for scaling beyond a small investor base.
+9. **Primary Laptop Failover** — Long-term goal to enable OPS-AUTOMATION as a warm standby for OPS-PRIMARY. Would require secure database replication strategy and runbook for failover activation. Not urgent — focus on automation split first.
+10. **Portal Dark Theme Redesign** — Carry the dark emerald gradient aesthetic from the landing page (`LandingPage.jsx`) into the authenticated investor portal pages (Dashboard, Performance, Portfolio, Activity, Reports, Settings). Currently the landing page uses a dark theme (slate-950/900 backgrounds, emerald-400/500 accents, gradient fills, glow shadows) while the authenticated pages use a light theme (white backgrounds, gray borders). Goal: unified visual identity across the entire site using the emerald gradient color palette: `bg-gradient-to-br from-slate-900 via-emerald-900 to-slate-900`, `text-emerald-400`, `shadow-emerald-500/25`, `bg-emerald-500/10` card surfaces.
 
 ## Recently Completed Features
 
@@ -217,6 +228,36 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
     - **API startup pipeline**: Added `_refresh_benchmark_cache()` (fetches Yahoo Finance data for SPY/QQQ/BTC-USD on startup, essential for Railway where daily pipeline doesn't run) and `_run_data_migrations()` (idempotent one-time data fixes). Changed `_ensure_db_views()` to drop-then-create so schema changes to views take effect on deploy without manual migration.
     - **Test transaction cleanup**: Soft-deleted +100/-100 test transactions (IDs 1, 2) via startup data migration. Queries already filter `is_deleted = 1`.
     - **useApi infinite loop fix**: The React `useApi` hook had `options = {}` default parameter creating a new object on every render, causing infinite re-render loop (~800 API requests/sec). Fixed by using `useRef` for `options` and `getAuthHeaders` so only `endpoint` string changes trigger re-fetches.
+14. **Public Landing Page** (Phase 11) — Marketing landing page at root URL (`/`) to capture prospective investors. 618 tests.
+    - **Route restructuring**: Landing page is now the root route `/`. Authenticated dashboard moved to `/dashboard`. Updated all navigation references (App.jsx, Layout.jsx, LoginPage.jsx, TutorialsPage.jsx, ReportsPage.jsx) to redirect to `/dashboard` instead of `/`.
+    - **Public API endpoints**: New `apps/investor_portal/api/routes/public.py` router with NO authentication required. `GET /public/teaser-stats` returns public-safe fund metrics (since-inception %, investor count, trading days — no dollar amounts or NAV prices). `POST /public/inquiry` creates prospect with email enumeration prevention (same response for new and duplicate emails).
+    - **Database functions**: `get_teaser_stats()` queries `daily_nav` and `investors` for aggregate metrics only. `create_prospect()` inserts into existing `prospects` table with duplicate email handling via `IntegrityError`.
+    - **Rate limiting**: In-memory per-IP rate limiter (5 inquiries per IP per hour) on the inquiry endpoint.
+    - **Background emails**: New prospect inquiries trigger two background emails — confirmation to prospect and notification to admin with prospect details. Uses existing `EmailService` pattern.
+    - **LandingPage.jsx**: Full marketing page with sticky navbar (auth-aware CTAs via `useAuth()`), hero section with animated gradient blobs, live teaser stats bar (fetched via plain `fetch()`, not `useApi`), How It Works cards, Features grid, inquiry form (replaces with success message on submit), and footer with legal disclaimer.
+    - **Prospect management**: Leverages existing `prospects` table (created by `scripts/setup/migrate_add_communications_tracking.py`). CLI management via `scripts/prospects/` scripts.
+15. **Admin Auth + Production NAV Sync** (Phase 12) — Server-to-server sync from automation laptop to Railway production database. 645 tests.
+    - **Admin API key authentication**: New `ADMIN_API_KEY` env var in `config.py`. Replaced `get_admin_user()` stub in `dependencies.py` with working `verify_admin_key()` dependency that validates `X-Admin-Key` header. Uses static API key (not JWT) since sync runs unattended via Task Scheduler.
+    - **Admin sync endpoint**: New `apps/investor_portal/api/routes/admin.py` with `POST /admin/sync` accepting batch payload of daily_nav, holdings_snapshot + positions, trades, benchmark_prices, and reconciliation data. Uses `INSERT OR REPLACE` for idempotency. Logs sync events to `system_logs` table. Registered in `main.py` with `/admin` prefix.
+    - **Upsert database functions**: Five new functions in `database.py` — `upsert_daily_nav()`, `upsert_holdings_snapshot()`, `upsert_trades()` (dedup by source + brokerage_transaction_id), `upsert_benchmark_prices()` (INSERT OR IGNORE), `upsert_reconciliation()`.
+    - **Sync client script**: New `scripts/sync_to_production.py` — collects today's pipeline data from local SQLite, POSTs to production API. Supports `--date`, `--days`, `--dry-run` flags. Reads `PRODUCTION_API_URL` and `ADMIN_API_KEY` from `.env`.
+    - **Daily pipeline Step 9**: Added production sync as non-fatal Step 9 in `daily_nav_enhanced.py`. Runs after benchmark refresh. Skips if `PRODUCTION_API_URL` or `ADMIN_API_KEY` not configured.
+    - **SEO blocking**: Added `robots.txt` (Disallow: /) and `<meta name="robots" content="noindex, nofollow">` to prevent search engine crawling during early access period.
+16. **Plan-Based Position Categorization** (Phase 13) — Every position classified into one of three investment plans with per-plan performance tracking. 692 tests.
+    - **Plan classification system**: New `src/plans/classification.py` module with `classify_position()` and `classify_position_by_underlying()` functions. Three plans: Plan CASH (SGOV, BIL, SHV, SCHO, VMFXX, VUSXX + Cash/money-market instrument types), Plan ETF (SPY, QQQ, SPXL, TQQQ, IWM, DIA, VOO as equity shares only), Plan A (everything else — options, individual stocks, leveraged options). Key rule: options on ETF symbols (e.g., SPY calls) go to Plan A, not Plan ETF.
+    - **Plan performance table**: New `plan_daily_performance` table with `(date, plan_id)` composite PK. Stores market_value, cost_basis, unrealized_pl, allocation_pct, position_count per plan per day. Migration: `scripts/setup/migrate_add_plan_performance.py` with `--backfill` option to populate from historical position_snapshots.
+    - **Daily pipeline Step 4b**: Added `compute_plan_performance()` method to `daily_nav_enhanced.py`. Reads today's position_snapshots, classifies each position, aggregates by plan, writes to plan_daily_performance. Runs between Step 4 (holdings snapshot) and Step 5 (reconciliation). Non-fatal.
+    - **Plan analysis API endpoints**: Two new endpoints in `apps/investor_portal/api/routes/analysis.py` — `GET /analysis/plan-allocation` (latest per-plan breakdown with metadata) and `GET /analysis/plan-performance` (time series with days parameter, 7-730). Both authenticated via JWT.
+    - **Sync integration**: Added `PlanPerformanceSync` model and `plan_performance` field to admin sync payload. New `collect_plan_performance()` in `sync_to_production.py`. New `upsert_plan_performance()` in `database.py`. Plan data synced to production in Step 9.
+    - **Helper functions**: `compute_plan_performance()` aggregates position lists into per-plan dicts. `get_plan_metadata()` returns display info (name, description, strategy, risk_level). `PLAN_METADATA` dict and `PLAN_IDS` tuple for iteration.
+17. **Gated Prospect Access** (Phase 14) — Approved prospects receive token-based links to view fund performance + plan breakdown without creating an investor account. 741 tests.
+    - **Prospect access tokens table**: New `prospect_access_tokens` table with token_id, prospect_id (FK), token (UNIQUE), expires_at, last_accessed_at, access_count, is_revoked, created_by. Migration: `scripts/setup/migrate_add_prospect_access.py`. One active token per prospect; creating new token auto-revokes existing ones.
+    - **Database functions**: Five new functions in `database.py` -- `create_prospect_access_token()` (revokes existing, inserts new), `validate_prospect_token()` (checks expiry/revocation, updates access tracking), `revoke_prospect_token()` (sets is_revoked=1), `get_prospect_access_list()` (LEFT JOIN prospects with non-revoked tokens), `get_prospect_performance_data()` (percentage-only fund data -- NO dollar amounts, NO nav_per_share).
+    - **Admin prospect management endpoints**: Three new endpoints in `admin.py` -- `POST /admin/prospect/{id}/grant-access` (generates `secrets.token_urlsafe(36)` token, 30-day default expiry, returns prospect URL), `DELETE /admin/prospect/{id}/revoke-access`, `GET /admin/prospects` (lists all prospects with token status). All protected by X-Admin-Key.
+    - **Prospect performance endpoint**: New `GET /public/prospect-performance?token=XXX&days=90` in `public.py`. Token-authenticated (no JWT). Returns percentage-only data: since_inception_pct, monthly_returns, plan_allocation, benchmark_comparison (fund vs SPY/QQQ). Invalid/expired/revoked tokens return `{valid: false}`.
+    - **CLI script**: New `scripts/prospects/grant_prospect_access.py` with interactive mode (shows prospect table, prompts for ID) and non-interactive mode (`--prospect-id`, `--days` flags).
+    - **FundPreviewPage.jsx**: New React page at `/fund-preview?token=XXX`. Dark theme (bg-slate-950, emerald accents) matching landing page. Sections: hero with since-inception badge, stats bar, monthly returns table (color-coded), plan allocation cards (3 plans with allocation bars), benchmark comparison cards (fund vs SPY/QQQ), CTA section, footer with legal disclaimer. Error states for invalid/expired tokens and network errors.
+    - **Security design**: Tokens are cryptographically random (`secrets.token_urlsafe(36)`). Access tracking (count + last_accessed_at) on every validation. Database enforces token uniqueness. No dollar amounts or NAV prices ever exposed to prospects.
 
 ## Production Deployment (Launched Feb 2026)
 
@@ -257,6 +298,9 @@ TOVITO_ENV=production
 
 # Encryption
 ENCRYPTION_KEY=<fernet-key>
+
+# Admin API (for production sync)
+ADMIN_API_KEY=<generated-hex-key>
 ```
 
 ### Cloudflare DNS Records
@@ -336,21 +380,34 @@ Environment configs exist in `config/` (.env.development, .env.production) but f
 
 **Automation Philosophy:** Automate everything that runs more than twice. Manual processes introduce errors and don't scale.
 
-**Current Automation:**
-- Daily NAV updates via Windows Task Scheduler (`run_daily.bat` → `scripts/daily_nav_enhanced.py`)
-- Watchdog monitoring (`run_watchdog.bat` → `apps/market_monitor/watchdog_monitor.py`)
-- Weekly validation (`run_weekly_validation.bat`)
-- Monthly report generation and email delivery (`send_monthly_reports.bat`)
+**Automation Split — Primary vs Management Laptop:**
 
-**Daily NAV Pipeline (7 steps in `daily_nav_enhanced.py`):**
+The guiding principle: **automations that write to `data/tovito.db` run on the primary laptop; everything else runs on the management laptop.** Weekly validation and monthly reports are run manually on the primary laptop as needed.
+
+*Primary Laptop — **OPS-PRIMARY** (writes to local database):*
+- Daily NAV updates via Task Scheduler (`run_daily.bat` → `scripts/daily_nav_enhanced.py`) — writes to 9 tables
+- Watchdog monitoring via Task Scheduler (`run_watchdog.bat` → `apps/market_monitor/watchdog_monitor.py`) — reads local DB to verify pipeline ran
+
+*Management Laptop — **OPS-AUTOMATION** (no local database dependency):*
+- Discord trade notifier via Task Scheduler (`run_trade_notifier.bat` → `scripts/trading/discord_trade_notifier.py`) — polls brokerage APIs directly, posts to Discord
+- GitHub code sync via Task Scheduler (`scripts/utilities/sync_from_github.bat` — every 30 min)
+- Weekly maintenance restart via Task Scheduler (`scripts/utilities/weekly_restart.bat` — Sunday 3 AM)
+
+*Manual / on-demand (primary laptop):*
+- Weekly validation (`run_weekly_validation.bat`) — reads local DB
+- Monthly report generation and email delivery (`send_monthly_reports.bat`) — reads local DB
+
+**Daily NAV Pipeline (10 steps in `daily_nav_enhanced.py`):**
 1. Fetch portfolio balance from brokerage (TastyTrade or Tradier via `BROKERAGE_PROVIDER`)
 2. Calculate NAV (total_portfolio_value / total_shares), write to `daily_nav` table
 3. Write heartbeat file (`logs/daily_nav_heartbeat.txt`) + ping healthchecks.io
 4. Snapshot holdings → `holdings_snapshots` + `position_snapshots` tables (non-fatal)
+4b. Compute plan performance → `plan_daily_performance` table (non-fatal) — classifies positions into Plan CASH/ETF/A, aggregates per-plan market_value, cost_basis, unrealized_pl, allocation_pct
 5. Run daily reconciliation → `daily_reconciliation` table (non-fatal)
 6. Sync brokerage trades via ETL pipeline for last 3 days (non-fatal) — extract → transform → load
 7. Update Discord pinned NAV message with chart (non-fatal) — connects as bot, edits pinned embed + chart image
 8. Refresh benchmark data cache (non-fatal) — fetches latest SPY/QQQ/BTC-USD prices via yfinance into `benchmark_prices` table
+9. Sync to production (non-fatal) — pushes NAV, positions, trades, benchmarks, reconciliation, plan performance to Railway via `POST /admin/sync`. Skips if `PRODUCTION_API_URL` or `ADMIN_API_KEY` not configured. Script: `scripts/sync_to_production.py`
 
 **Email Logging:** All emails sent via `EmailService` are automatically logged to `email_logs` table (both successes and failures). Added Feb 2026.
 
@@ -362,11 +419,24 @@ Environment configs exist in `config/` (.env.development, .env.production) but f
 - **Daily NAV** — Pinged by `daily_nav_enhanced.py` at end of each run (success or fail endpoint). Expected daily at ~4:05 PM EST. If no ping arrives within the grace period, healthchecks.io sends an email alert. Env var: `HEALTHCHECK_DAILY_NAV_URL`.
 - **Watchdog** — Pinged by `watchdog_monitor.py` only when ALL system checks pass AND no warnings. If the watchdog detects issues (stale NAV, heartbeat missing, log errors), it does NOT ping success. Env var: `HEALTHCHECK_WATCHDOG_URL`.
 - **Important:** Both scripts ping at the END of execution. If a script crashes before reaching the ping code, no ping is sent and healthchecks.io will eventually alert.
-- **Batch file dependency:** The `.bat` launchers must resolve the correct Python path. When Python is upgraded (e.g., 3.13 → 3.14), update the hardcoded paths in `run_daily.bat`, `run_watchdog.bat`, and `run_trade_notifier.bat` to match. Current: `C:\Python314\python.exe`.
+- **Batch file dependency:** The `.bat` launchers must resolve the correct Python path. When Python is upgraded (e.g., 3.13 → 3.14), update the hardcoded paths in `run_daily.bat`, `run_watchdog.bat`, `run_trade_notifier.bat`, `sync_from_github.bat`, and `weekly_restart.bat` to match. Current: `C:\Python314\python.exe`.
 
 **Discord Trade Notifier:** `scripts/trading/discord_trade_notifier.py` — Persistent service that polls TastyTrade and Tradier every 5 minutes during market hours (9:25 AM - 4:30 PM ET) for new trades and posts opening/closing trades to the `#tovito-trader-trades` Discord channel via webhook. Launcher: `run_trade_notifier.bat`. Env var: `DISCORD_TRADES_WEBHOOK_URL`.
 
 **Discord Pinned NAV Message:** `scripts/discord/update_nav_message.py` — One-shot bot script (using discord.py) that connects, updates a pinned embed with current NAV + chart image, and disconnects. Runs as Step 7 of the daily NAV pipeline (non-fatal). Finds its own pinned message each run (no message ID storage). First run posts + pins; subsequent runs edit in place. Env vars: `DISCORD_BOT_TOKEN`, `DISCORD_NAV_CHANNEL_ID`. Requires discord.py (`pip install discord.py`) and bot setup in Discord Developer Portal with Send Messages, Manage Messages, Attach Files, Read Message History permissions.
+
+**Management Laptop (OPS-AUTOMATION):** A dedicated always-on laptop that runs automations with NO local database dependency. It is NOT a development replica — no copy of `tovito.db`, no database-writing scripts. It only needs: `.env` (brokerage credentials + Discord webhook URL), Python + `tastytrade` package, and Git.
+
+*Scheduled tasks (3):*
+- **Discord Trade Notifier** (`run_trade_notifier.bat`) — Weekdays 9:20 AM. Persistent service polling brokerage APIs every 5 min during market hours, posting trades to Discord. No database reads/writes.
+- **GitHub Code Sync** (`scripts/utilities/sync_from_github.bat`) — Every 30 minutes. Fetches `origin/main`, skips pull if no changes (silent exit, no log noise). When changes exist: pulls, auto-installs Python/npm dependencies if `requirements.txt` or `package.json` changed, logs changed migration scripts for manual review.
+- **Weekly Restart** (`scripts/utilities/weekly_restart.bat`) — Sunday 3 AM. Gracefully terminates Python/Node processes, issues `shutdown /r /t 30` to apply pending Windows updates. Task Scheduler tasks resume automatically after reboot.
+
+*Required Windows settings:*
+- Power & sleep → Never sleep (plugged in)
+- Lid close action → Do nothing
+- Disable hibernation: `powercfg /hibernate off`
+- Windows Update active hours: 9 AM - 6 PM (prevents restarts during market hours)
 
 **Regression Testing Requirements:**
 - **Run `pytest tests/ -v` before and after every significant code change.**
@@ -395,6 +465,11 @@ python scripts/daily_nav_enhanced.py
 python scripts/investor/submit_fund_flow.py      # Step 1: Submit request
 python scripts/investor/match_fund_flow.py        # Step 2: Match to brokerage ACH
 python scripts/investor/process_fund_flow.py      # Step 3: Execute share accounting
+
+# Sync to production (push pipeline data to Railway)
+python scripts/sync_to_production.py              # Push today's data
+python scripts/sync_to_production.py --dry-run    # Show payload without sending
+python scripts/sync_to_production.py --date 2026-02-24 --days 5  # Specific date + lookback
 
 # Run ETL pipeline (sync brokerage trades)
 python scripts/trading/run_etl.py --days 7        # Last 7 days (default)
@@ -428,7 +503,14 @@ python scripts/setup/migrate_add_brokerage_raw.py  # ETL staging table
 python scripts/setup/migrate_add_fund_flow.py       # Fund flow requests table
 python scripts/setup/migrate_add_profiles.py        # Profiles + referrals tables
 python scripts/setup/migrate_add_benchmarks.py      # Benchmark prices cache table
+python scripts/setup/migrate_add_plan_performance.py            # Plan daily performance table
+python scripts/setup/migrate_add_plan_performance.py --backfill # Backfill from position snapshots
+python scripts/setup/migrate_add_prospect_access.py             # Prospect access tokens table
 python scripts/setup/backfill_fund_flow_requests.py --dry-run  # Backfill historical FFR records
+
+# Grant prospect access (gated fund preview page)
+python scripts/prospects/grant_prospect_access.py               # Interactive mode
+python scripts/prospects/grant_prospect_access.py --prospect-id 1 --days 30  # Non-interactive
 
 # Generate monthly reports
 python scripts/reporting/generate_monthly_report.py --month 2 --year 2026 --email
@@ -532,6 +614,11 @@ ENCRYPTION_KEY=...             # Fernet key — generate via: python src/utils/e
 # Investor portal
 PORTAL_BASE_URL=http://localhost:3000  # Base URL for email links (verification, password reset)
 
+# Admin API (for production sync from automation laptop)
+ADMIN_API_KEY=...              # Shared secret — same value on Railway and local .env
+                               # Generate: python -c "import secrets; print(secrets.token_hex(32))"
+PRODUCTION_API_URL=https://api.tovitotrader.com  # Local .env only (not on Railway)
+
 # Fund settings
 TAX_RATE=0.37
 MARKET_CLOSE_TIME=16:00
@@ -542,11 +629,11 @@ TIMEZONE=America/New_York
 
 ## Testing
 
-- Tests are in `tests/` using pytest (~595 tests, all passing)
+- Tests are in `tests/` using pytest (~741 tests, all passing)
 - Test database setup: `scripts/setup/setup_test_database.py`
-- Test fixtures in `tests/conftest.py` — creates full schema including email_logs, daily_reconciliation, holdings_snapshots, position_snapshots, brokerage_transactions_raw, fund_flow_requests, investor_profiles, referrals
+- Test fixtures in `tests/conftest.py` — creates full schema including email_logs, daily_reconciliation, holdings_snapshots, position_snapshots, brokerage_transactions_raw, fund_flow_requests, investor_profiles, referrals, prospects, prospect_communications, plan_daily_performance, prospect_access_tokens
 - **Always run tests against a test database, never production**
-- Key test files: test_contributions.py, test_withdrawals.py, test_nav_calculations.py, test_database_validation.py, test_chart_generation.py (includes TestBenchmarkChart), test_benchmarks.py (market data caching, normalization), test_ops_health_checks.py, test_remediation.py, test_brokerage_factory.py, test_combined_brokerage.py, test_tastytrade_client.py, test_etl.py, test_fund_flow.py, test_encryption.py, test_investor_profiles.py, test_discord_trade_notifier.py, test_discord_utils.py, test_discord_nav_updater.py, test_api_regression.py (tests fund-flow + benchmark + analysis endpoints), test_tutorials.py (tutorial infrastructure: annotator, HTML generator, video composer, terminal rendering), test_mindmap.py (data model, layout, Mermaid/PNG/SVG/HTML generators), test_portfolio_analysis.py (risk metrics, holdings aggregation, monthly performance, DB integration), test_report_generation_api.py (job tracking, input validation, rate limiting), test_auth_service.py (password validation, bcrypt hashing, verification flow, login/lockout, password reset)
+- Key test files: test_contributions.py, test_withdrawals.py, test_nav_calculations.py, test_database_validation.py, test_chart_generation.py (includes TestBenchmarkChart), test_benchmarks.py (market data caching, normalization), test_ops_health_checks.py, test_remediation.py, test_brokerage_factory.py, test_combined_brokerage.py, test_tastytrade_client.py, test_etl.py, test_fund_flow.py, test_encryption.py, test_investor_profiles.py, test_discord_trade_notifier.py, test_discord_utils.py, test_discord_nav_updater.py, test_api_regression.py (tests fund-flow + benchmark + analysis endpoints), test_tutorials.py (tutorial infrastructure: annotator, HTML generator, video composer, terminal rendering), test_mindmap.py (data model, layout, Mermaid/PNG/SVG/HTML generators), test_portfolio_analysis.py (risk metrics, holdings aggregation, monthly performance, DB integration), test_report_generation_api.py (job tracking, input validation, rate limiting), test_auth_service.py (password validation, bcrypt hashing, verification flow, login/lockout, password reset), test_landing_page_api.py (teaser stats, prospect creation, public endpoints, rate limiting, input validation), test_admin_sync.py (admin key auth, upsert functions, sync payload assembly, endpoint integration), test_plan_classification.py (plan classification logic, compute_plan_performance, upsert_plan_performance, sync integration, plan API endpoints), test_prospect_access.py (token creation/validation/revocation, access tracking, prospect performance data, admin endpoints, security constraints)
 
 ## Coding Conventions
 

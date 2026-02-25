@@ -18,7 +18,8 @@ from ..models.database import (
     get_investor_by_id,
     get_investor_position,
     get_investor_transactions,
-    get_available_statements
+    get_available_statements,
+    get_investor_value_history
 )
 
 
@@ -95,6 +96,22 @@ class StatementItem(BaseModel):
 class StatementsResponse(BaseModel):
     """List of available statements"""
     statements: List[StatementItem]
+
+
+class ValueHistoryPoint(BaseModel):
+    """Single point in investor value history"""
+    date: str
+    portfolio_value: float
+    shares: float
+    nav_per_share: float
+    daily_change_pct: Optional[float]
+    transaction_type: Optional[str]
+    transaction_amount: Optional[float]
+
+
+class ValueHistoryResponse(BaseModel):
+    """Investor portfolio value over time"""
+    history: List[ValueHistoryPoint]
 
 
 # ============================================================
@@ -242,4 +259,22 @@ async def download_statement(
         path=str(filepath),
         filename=filename,
         media_type="application/pdf"
+    )
+
+
+@router.get("/value-history", response_model=ValueHistoryResponse)
+async def get_value_history(
+    user: CurrentUser = Depends(get_current_user),
+    days: int = Query(default=90, ge=1, le=730, description="Number of days of history")
+):
+    """
+    Get investor's portfolio value over time.
+
+    Computes daily portfolio value as shares_held * nav_per_share.
+    Includes transaction markers (contributions/withdrawals).
+    """
+    history = get_investor_value_history(user.investor_id, days=days)
+
+    return ValueHistoryResponse(
+        history=[ValueHistoryPoint(**point) for point in history]
     )

@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 import time
 
 from .config import settings, CORS_ORIGINS
-from .routes import auth, investor, nav, fund_flow, profile, referral, reports, analysis
+from .routes import auth, investor, nav, fund_flow, profile, referral, reports, analysis, public, admin
 
 
 # Lifespan for startup/shutdown
@@ -186,6 +186,8 @@ app.include_router(profile.router, prefix="/profile", tags=["Profile"])
 app.include_router(referral.router, prefix="/referral", tags=["Referral"])
 app.include_router(reports.router, prefix="/reports", tags=["Reports"])
 app.include_router(analysis.router, prefix="/analysis", tags=["Analysis"])
+app.include_router(public.router, prefix="/public", tags=["Public"])
+app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 
 
 # Health check endpoint

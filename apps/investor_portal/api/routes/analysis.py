@@ -92,6 +92,34 @@ class MonthlyPerformanceResponse(BaseModel):
     worst_month_return: float
 
 
+class RollingReturnPoint(BaseModel):
+    """Single data point for rolling returns"""
+    date: str
+    rolling_30d: Optional[float]
+    rolling_90d: Optional[float]
+
+
+class RollingReturnsResponse(BaseModel):
+    """Rolling return series"""
+    data: List[RollingReturnPoint]
+
+
+class BenchmarkComparisonItem(BaseModel):
+    """Comparison vs a single benchmark"""
+    ticker: str
+    label: str
+    fund_return: float
+    benchmark_return: float
+    outperformance: float
+
+
+class BenchmarkComparisonResponse(BaseModel):
+    """Fund vs benchmark comparison for a period"""
+    period_days: int
+    period_label: str
+    comparisons: List[BenchmarkComparisonItem]
+
+
 # ============================================================
 # Routes
 # ============================================================
@@ -428,3 +456,478 @@ async def get_monthly_performance(
 
     finally:
         conn.close()
+
+
+@router.get("/rolling-returns", response_model=RollingReturnsResponse)
+async def get_rolling_returns(
+    user: CurrentUser = Depends(get_current_user),
+    days: int = Query(default=365, le=730, description="Lookback period in days"),
+):
+    """
+    Calculate rolling 30-day and 90-day return series.
+
+    For each day, computes the percentage return over the trailing
+    30 and 90 calendar days respectively.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT date, nav_per_share
+            FROM daily_nav
+            ORDER BY date DESC
+            LIMIT ?
+        """, (days,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        rows.reverse()  # oldest first
+
+        if len(rows) < 2:
+            return RollingReturnsResponse(data=[])
+
+        # Build date -> nav lookup
+        nav_by_date = {r['date']: r['nav_per_share'] for r in rows}
+        dates_list = [r['date'] for r in rows]
+
+        result = []
+        for i, r in enumerate(rows):
+            current_nav = r['nav_per_share']
+            current_date = r['date']
+
+            # Find NAV approximately 30 days ago
+            rolling_30d = None
+            target_30 = str(date.fromisoformat(current_date) - timedelta(days=30))
+            # Find closest date on or before target
+            nav_30 = _find_closest_nav(dates_list, nav_by_date, target_30, current_date)
+            if nav_30 is not None and nav_30 > 0:
+                rolling_30d = round(((current_nav / nav_30) - 1) * 100, 2)
+
+            # Find NAV approximately 90 days ago
+            rolling_90d = None
+            target_90 = str(date.fromisoformat(current_date) - timedelta(days=90))
+            nav_90 = _find_closest_nav(dates_list, nav_by_date, target_90, current_date)
+            if nav_90 is not None and nav_90 > 0:
+                rolling_90d = round(((current_nav / nav_90) - 1) * 100, 2)
+
+            result.append(RollingReturnPoint(
+                date=current_date,
+                rolling_30d=rolling_30d,
+                rolling_90d=rolling_90d,
+            ))
+
+        return RollingReturnsResponse(data=result)
+
+    finally:
+        conn.close()
+
+
+def _find_closest_nav(dates_list, nav_by_date, target_date, current_date):
+    """Find the NAV value for the date closest to (but not after) target_date.
+
+    Returns None if no suitable date found.
+    """
+    best_date = None
+    for d in dates_list:
+        if d > current_date:
+            break
+        if d <= target_date:
+            best_date = d
+    return nav_by_date.get(best_date) if best_date else None
+
+
+@router.get("/benchmark-comparison", response_model=BenchmarkComparisonResponse)
+async def get_benchmark_comparison(
+    user: CurrentUser = Depends(get_current_user),
+    days: int = Query(default=90, le=730, description="Comparison period in days"),
+):
+    """
+    Compare fund performance vs SPY, QQQ, and BTC-USD.
+
+    Returns the fund return, each benchmark return, and the
+    outperformance (fund - benchmark) for the given period.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cutoff = str(date.today() - timedelta(days=days))
+
+        # Fund return
+        cursor.execute("""
+            SELECT nav_per_share FROM daily_nav
+            WHERE date >= ? ORDER BY date ASC LIMIT 1
+        """, (cutoff,))
+        start_row = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT nav_per_share FROM daily_nav
+            ORDER BY date DESC LIMIT 1
+        """)
+        end_row = cursor.fetchone()
+
+        if not start_row or not end_row:
+            return BenchmarkComparisonResponse(
+                period_days=days, period_label=_period_label(days),
+                comparisons=[],
+            )
+
+        fund_start = start_row['nav_per_share']
+        fund_end = end_row['nav_per_share']
+        fund_return = ((fund_end / fund_start) - 1) * 100 if fund_start > 0 else 0
+
+        # Benchmark returns
+        benchmarks = [
+            ('SPY', 'S&P 500'),
+            ('QQQ', 'Nasdaq 100'),
+            ('BTC-USD', 'Bitcoin'),
+        ]
+
+        comparisons = []
+        for ticker, label in benchmarks:
+            cursor.execute("""
+                SELECT close_price FROM benchmark_prices
+                WHERE ticker = ? AND date >= ?
+                ORDER BY date ASC LIMIT 1
+            """, (ticker, cutoff))
+            b_start = cursor.fetchone()
+
+            cursor.execute("""
+                SELECT close_price FROM benchmark_prices
+                WHERE ticker = ?
+                ORDER BY date DESC LIMIT 1
+            """, (ticker,))
+            b_end = cursor.fetchone()
+
+            if b_start and b_end and b_start['close_price'] > 0:
+                b_return = ((b_end['close_price'] / b_start['close_price']) - 1) * 100
+            else:
+                b_return = 0.0
+
+            comparisons.append(BenchmarkComparisonItem(
+                ticker=ticker,
+                label=label,
+                fund_return=round(fund_return, 2),
+                benchmark_return=round(b_return, 2),
+                outperformance=round(fund_return - b_return, 2),
+            ))
+
+        return BenchmarkComparisonResponse(
+            period_days=days,
+            period_label=_period_label(days),
+            comparisons=comparisons,
+        )
+
+    finally:
+        conn.close()
+
+
+class HistoricalPerformerItem(BaseModel):
+    """A ticker's historical P&L from position snapshots."""
+    symbol: str
+    best_unrealized_pl: Optional[float]
+    best_unrealized_pl_pct: Optional[float]
+    worst_unrealized_pl: Optional[float]
+    worst_unrealized_pl_pct: Optional[float]
+    latest_unrealized_pl: Optional[float]
+    latest_unrealized_pl_pct: Optional[float]
+    first_seen: Optional[str]
+    last_seen: Optional[str]
+
+
+class HistoricalPerformersResponse(BaseModel):
+    """Top and bottom performers from historical position snapshots."""
+    top_performers: List[HistoricalPerformerItem]
+    bottom_performers: List[HistoricalPerformerItem]
+    period_start: Optional[str]
+    period_end: Optional[str]
+
+
+@router.get("/historical-performers", response_model=HistoricalPerformersResponse)
+async def get_historical_performers(
+    user: CurrentUser = Depends(get_current_user),
+    days: int = Query(default=730, ge=1, le=730, description="Lookback period in days"),
+):
+    """
+    Get best and worst performing positions from historical snapshots.
+
+    Queries position_snapshots across all historical holdings_snapshots
+    to find tickers with the best and worst unrealized P&L percentages.
+    Includes both current and past positions.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cutoff = str(date.today() - timedelta(days=days))
+
+        # Get all position snapshots within the date range, aggregate by symbol
+        cursor.execute("""
+            SELECT
+                ps.symbol,
+                MIN(hs.date) as first_seen,
+                MAX(hs.date) as last_seen,
+                MAX(ps.unrealized_pl) as best_unrealized_pl,
+                MIN(ps.unrealized_pl) as worst_unrealized_pl,
+                SUM(CASE WHEN hs.date = (
+                    SELECT MAX(hs2.date)
+                    FROM holdings_snapshots hs2
+                    JOIN position_snapshots ps2 ON ps2.snapshot_id = hs2.snapshot_id
+                    WHERE ps2.symbol = ps.symbol AND hs2.date >= ?
+                ) THEN ps.unrealized_pl ELSE NULL END) as latest_pl,
+                SUM(CASE WHEN hs.date = (
+                    SELECT MAX(hs2.date)
+                    FROM holdings_snapshots hs2
+                    JOIN position_snapshots ps2 ON ps2.snapshot_id = hs2.snapshot_id
+                    WHERE ps2.symbol = ps.symbol AND hs2.date >= ?
+                ) THEN ps.cost_basis ELSE NULL END) as latest_cost_basis,
+                MAX(CASE WHEN ps.cost_basis > 0
+                    THEN (ps.unrealized_pl / ps.cost_basis * 100)
+                    ELSE NULL END) as best_pl_pct,
+                MIN(CASE WHEN ps.cost_basis > 0
+                    THEN (ps.unrealized_pl / ps.cost_basis * 100)
+                    ELSE NULL END) as worst_pl_pct
+            FROM position_snapshots ps
+            JOIN holdings_snapshots hs ON hs.snapshot_id = ps.snapshot_id
+            WHERE hs.date >= ?
+              AND ps.symbol NOT IN ('Cash', 'CASH')
+              AND ps.instrument_type NOT LIKE '%%Cash%%'
+            GROUP BY ps.symbol
+            HAVING MAX(ABS(ps.cost_basis)) > 0
+            ORDER BY best_pl_pct DESC
+        """, (cutoff, cutoff, cutoff))
+
+        rows = [dict(r) for r in cursor.fetchall()]
+
+        # Build top performers (best unrealized P&L %)
+        top_performers = []
+        for row in rows[:5]:
+            latest_pct = None
+            if row.get('latest_cost_basis') and row['latest_cost_basis'] > 0 and row.get('latest_pl') is not None:
+                latest_pct = round(row['latest_pl'] / row['latest_cost_basis'] * 100, 2)
+
+            top_performers.append(HistoricalPerformerItem(
+                symbol=row['symbol'].split(' ')[0] if ' ' in row['symbol'] else row['symbol'],
+                best_unrealized_pl=round(row['best_unrealized_pl'], 2) if row.get('best_unrealized_pl') is not None else None,
+                best_unrealized_pl_pct=round(row['best_pl_pct'], 2) if row.get('best_pl_pct') is not None else None,
+                worst_unrealized_pl=round(row['worst_unrealized_pl'], 2) if row.get('worst_unrealized_pl') is not None else None,
+                worst_unrealized_pl_pct=round(row['worst_pl_pct'], 2) if row.get('worst_pl_pct') is not None else None,
+                latest_unrealized_pl=round(row['latest_pl'], 2) if row.get('latest_pl') is not None else None,
+                latest_unrealized_pl_pct=latest_pct,
+                first_seen=row.get('first_seen'),
+                last_seen=row.get('last_seen'),
+            ))
+
+        # Bottom performers (worst unrealized P&L %) — sort ascending
+        sorted_worst = sorted(rows, key=lambda r: r.get('worst_pl_pct') or 0)
+        bottom_performers = []
+        for row in sorted_worst[:5]:
+            latest_pct = None
+            if row.get('latest_cost_basis') and row['latest_cost_basis'] > 0 and row.get('latest_pl') is not None:
+                latest_pct = round(row['latest_pl'] / row['latest_cost_basis'] * 100, 2)
+
+            bottom_performers.append(HistoricalPerformerItem(
+                symbol=row['symbol'].split(' ')[0] if ' ' in row['symbol'] else row['symbol'],
+                best_unrealized_pl=round(row['best_unrealized_pl'], 2) if row.get('best_unrealized_pl') is not None else None,
+                best_unrealized_pl_pct=round(row['best_pl_pct'], 2) if row.get('best_pl_pct') is not None else None,
+                worst_unrealized_pl=round(row['worst_unrealized_pl'], 2) if row.get('worst_unrealized_pl') is not None else None,
+                worst_unrealized_pl_pct=round(row['worst_pl_pct'], 2) if row.get('worst_pl_pct') is not None else None,
+                latest_unrealized_pl=round(row['latest_pl'], 2) if row.get('latest_pl') is not None else None,
+                latest_unrealized_pl_pct=latest_pct,
+                first_seen=row.get('first_seen'),
+                last_seen=row.get('last_seen'),
+            ))
+
+        # Date range
+        cursor.execute("SELECT MIN(date) as start_date, MAX(date) as end_date FROM holdings_snapshots WHERE date >= ?", (cutoff,))
+        date_range = cursor.fetchone()
+
+        return HistoricalPerformersResponse(
+            top_performers=top_performers,
+            bottom_performers=bottom_performers,
+            period_start=str(date_range['start_date']) if date_range and date_range['start_date'] else None,
+            period_end=str(date_range['end_date']) if date_range and date_range['end_date'] else None,
+        )
+
+    finally:
+        conn.close()
+
+
+def _period_label(days: int) -> str:
+    """Human-readable period label."""
+    if days <= 30:
+        return "Last 30 Days"
+    elif days <= 90:
+        return "Last 90 Days"
+    elif days <= 180:
+        return "Last 6 Months"
+    elif days <= 365:
+        return "Last Year"
+    else:
+        return "Since Inception"
+
+
+# ============================================================
+# Plan Allocation & Performance
+# ============================================================
+
+class PlanMetadata(BaseModel):
+    """Plan display information."""
+    plan_id: str
+    name: str
+    description: str
+    strategy: str
+    risk_level: str
+
+
+class PlanAllocationItem(BaseModel):
+    """Single plan in the allocation breakdown."""
+    plan_id: str
+    name: str
+    description: str
+    risk_level: str
+    market_value: float
+    cost_basis: float
+    unrealized_pl: float
+    allocation_pct: float
+    position_count: int
+
+
+class PlanAllocationResponse(BaseModel):
+    """Current plan allocation breakdown."""
+    as_of_date: str
+    plans: List[PlanAllocationItem]
+    total_market_value: float
+
+
+class PlanPerformancePoint(BaseModel):
+    """Single day of plan performance history."""
+    date: str
+    plan_id: str
+    allocation_pct: float
+    market_value: float
+
+
+class PlanPerformanceResponse(BaseModel):
+    """Plan performance time series."""
+    days: int
+    series: Dict[str, List[PlanPerformancePoint]]
+
+
+@router.get("/plan-allocation", response_model=PlanAllocationResponse)
+async def get_plan_allocation(
+    user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get the current plan allocation breakdown.
+
+    Returns the latest per-plan market_value, cost_basis, unrealized_pl,
+    allocation_pct, and position_count along with plan metadata.
+    """
+    try:
+        from src.plans.classification import get_plan_metadata
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Get the latest date with plan data
+        cursor.execute("""
+            SELECT date FROM plan_daily_performance
+            ORDER BY date DESC LIMIT 1
+        """)
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return PlanAllocationResponse(
+                as_of_date="",
+                plans=[],
+                total_market_value=0.0,
+            )
+
+        latest_date = row["date"]
+
+        # Get all plans for that date
+        cursor.execute("""
+            SELECT plan_id, market_value, cost_basis, unrealized_pl,
+                   allocation_pct, position_count
+            FROM plan_daily_performance
+            WHERE date = ?
+            ORDER BY allocation_pct DESC
+        """, (latest_date,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        plans = []
+        total_mv = 0.0
+        for r in rows:
+            meta = get_plan_metadata(r["plan_id"])
+            plans.append(PlanAllocationItem(
+                plan_id=r["plan_id"],
+                name=meta["name"],
+                description=meta["description"],
+                risk_level=meta["risk_level"],
+                market_value=round(r["market_value"], 2),
+                cost_basis=round(r["cost_basis"], 2),
+                unrealized_pl=round(r["unrealized_pl"], 2),
+                allocation_pct=round(r["allocation_pct"], 2),
+                position_count=r["position_count"],
+            ))
+            total_mv += r["market_value"]
+
+        return PlanAllocationResponse(
+            as_of_date=latest_date,
+            plans=plans,
+            total_market_value=round(total_mv, 2),
+        )
+
+    except Exception as e:
+        logger.error(f"Plan allocation error: {ascii(str(e))}")
+        return PlanAllocationResponse(
+            as_of_date="",
+            plans=[],
+            total_market_value=0.0,
+        )
+
+
+@router.get("/plan-performance", response_model=PlanPerformanceResponse)
+async def get_plan_performance(
+    user: CurrentUser = Depends(get_current_user),
+    days: int = Query(default=90, ge=7, le=730),
+):
+    """
+    Get plan performance time series.
+
+    Returns allocation_pct and market_value per plan per day,
+    grouped by plan_id for easy charting.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        since_date = (date.today() - timedelta(days=days)).isoformat()
+
+        cursor.execute("""
+            SELECT date, plan_id, allocation_pct, market_value
+            FROM plan_daily_performance
+            WHERE date >= ?
+            ORDER BY date ASC
+        """, (since_date,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        series: Dict[str, List[PlanPerformancePoint]] = {}
+        for r in rows:
+            pid = r["plan_id"]
+            if pid not in series:
+                series[pid] = []
+            series[pid].append(PlanPerformancePoint(
+                date=r["date"],
+                plan_id=pid,
+                allocation_pct=round(r["allocation_pct"], 2),
+                market_value=round(r["market_value"], 2),
+            ))
+
+        return PlanPerformanceResponse(days=days, series=series)
+
+    except Exception as e:
+        logger.error(f"Plan performance error: {ascii(str(e))}")
+        return PlanPerformanceResponse(days=days, series={})

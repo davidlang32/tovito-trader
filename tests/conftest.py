@@ -416,6 +416,72 @@ def _create_test_schema(conn):
     conn.execute("CREATE INDEX idx_investor_auth_verification ON investor_auth(verification_token)")
     conn.execute("CREATE INDEX idx_investor_auth_reset ON investor_auth(reset_token)")
 
+    # Prospects table (landing page inquiries)
+    conn.execute("""
+        CREATE TABLE prospects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            phone TEXT,
+            date_added TEXT NOT NULL,
+            status TEXT DEFAULT 'Active',
+            source TEXT,
+            notes TEXT,
+            last_contact_date TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Prospect communications table
+    conn.execute("""
+        CREATE TABLE prospect_communications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prospect_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            communication_type TEXT NOT NULL,
+            subject TEXT,
+            report_period TEXT,
+            status TEXT DEFAULT 'Sent',
+            error_message TEXT,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+        )
+    """)
+
+    # Plan daily performance table
+    conn.execute("""
+        CREATE TABLE plan_daily_performance (
+            date TEXT NOT NULL,
+            plan_id TEXT NOT NULL,
+            market_value REAL NOT NULL,
+            cost_basis REAL NOT NULL,
+            unrealized_pl REAL NOT NULL,
+            allocation_pct REAL NOT NULL,
+            position_count INTEGER NOT NULL,
+            PRIMARY KEY (date, plan_id)
+        )
+    """)
+
+    # Prospect access tokens table (gated fund preview)
+    conn.execute("""
+        CREATE TABLE prospect_access_tokens (
+            token_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prospect_id INTEGER NOT NULL,
+            token TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            last_accessed_at TIMESTAMP,
+            access_count INTEGER DEFAULT 0,
+            is_revoked INTEGER DEFAULT 0,
+            created_by TEXT DEFAULT 'admin',
+            FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+        )
+    """)
+    conn.execute("CREATE INDEX idx_pat_token ON prospect_access_tokens(token)")
+    conn.execute("CREATE INDEX idx_pat_prospect ON prospect_access_tokens(prospect_id)")
+
     conn.commit()
 
 

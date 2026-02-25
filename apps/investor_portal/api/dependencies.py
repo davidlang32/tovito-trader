@@ -8,7 +8,7 @@ Used by all protected endpoints.
 
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -130,12 +130,26 @@ async def get_current_user(
     )
 
 
-# Optional: Dependency for admin-only endpoints (future use)
-async def get_admin_user(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    """Verify user has admin privileges"""
-    # For now, we don't have admin flags in the database
-    # This could check a role field in the future
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Admin access required"
-    )
+async def verify_admin_key(
+    x_admin_key: str = Header(..., alias="X-Admin-Key")
+) -> bool:
+    """
+    Verify admin API key for server-to-server endpoints.
+
+    Used by automation scripts (e.g., production sync) that run
+    unattended via Task Scheduler. Uses a static API key from
+    env var instead of JWT since there is no interactive login.
+
+    Header: X-Admin-Key: <key>
+    """
+    if not settings.ADMIN_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin API key not configured"
+        )
+    if x_admin_key != settings.ADMIN_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid admin key"
+        )
+    return True

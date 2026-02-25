@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # Email notifications (for withdrawal requests)
     ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
 
+    # Admin API key (for server-to-server sync from automation laptop)
+    ADMIN_API_KEY: str = os.getenv("ADMIN_API_KEY", "")
+
     class Config:
         env_file = ".env"
         extra = "ignore"

@@ -450,6 +450,107 @@ Automated alert from daily_nav_enhanced.py
         except Exception as e:
             self.log(f"Holdings snapshot failed: {e}", "WARNING")
 
+    def compute_plan_performance(self):
+        """
+        Step 4b: Compute per-plan performance from today's position snapshots.
+
+        Reads the latest position_snapshots, classifies each position into
+        a plan (CASH, ETF, or Plan A), aggregates market_value/cost_basis/
+        unrealized_pl per plan, and writes to plan_daily_performance table.
+
+        Non-fatal: if this fails, the NAV update is still valid.
+        """
+        try:
+            from src.plans.classification import (
+                classify_position_by_underlying, PLAN_IDS
+            )
+
+            today = datetime.now().strftime('%Y-%m-%d')
+            conn = sqlite3.connect(str(DB_PATH), timeout=10)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # Get today's latest snapshot
+            cursor.execute("""
+                SELECT snapshot_id FROM holdings_snapshots
+                WHERE date = ?
+                ORDER BY snapshot_id DESC LIMIT 1
+            """, (today,))
+            row = cursor.fetchone()
+            if not row:
+                self.log("  Plan performance skipped: no snapshot for today", "WARNING")
+                conn.close()
+                return
+
+            snapshot_id = row["snapshot_id"]
+
+            # Get positions
+            cursor.execute("""
+                SELECT symbol, underlying_symbol, instrument_type,
+                       quantity, market_value, cost_basis, unrealized_pl
+                FROM position_snapshots
+                WHERE snapshot_id = ?
+            """, (snapshot_id,))
+            positions = [dict(r) for r in cursor.fetchall()]
+
+            if not positions:
+                self.log("  Plan performance skipped: no positions in snapshot", "WARNING")
+                conn.close()
+                return
+
+            # Classify and aggregate
+            plans = {}
+            total_value = 0.0
+            for pos in positions:
+                plan_id = classify_position_by_underlying(
+                    symbol=pos.get("symbol", ""),
+                    underlying_symbol=pos.get("underlying_symbol"),
+                    instrument_type=pos.get("instrument_type"),
+                )
+                if plan_id not in plans:
+                    plans[plan_id] = {
+                        "market_value": 0.0,
+                        "cost_basis": 0.0,
+                        "unrealized_pl": 0.0,
+                        "position_count": 0,
+                    }
+                mv = pos.get("market_value") or 0.0
+                plans[plan_id]["market_value"] += mv
+                plans[plan_id]["cost_basis"] += (pos.get("cost_basis") or 0.0)
+                plans[plan_id]["unrealized_pl"] += (pos.get("unrealized_pl") or 0.0)
+                plans[plan_id]["position_count"] += 1
+                total_value += mv
+
+            # Write to plan_daily_performance
+            for plan_id, data in plans.items():
+                alloc_pct = (data["market_value"] / total_value * 100) if total_value > 0 else 0.0
+                cursor.execute("""
+                    INSERT OR REPLACE INTO plan_daily_performance
+                        (date, plan_id, market_value, cost_basis, unrealized_pl,
+                         allocation_pct, position_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    today, plan_id,
+                    round(data["market_value"], 2),
+                    round(data["cost_basis"], 2),
+                    round(data["unrealized_pl"], 2),
+                    round(alloc_pct, 2),
+                    data["position_count"],
+                ))
+
+            conn.commit()
+            conn.close()
+
+            plan_summary = ", ".join(
+                f"{pid}: {d['position_count']} pos ({d['market_value'] / total_value * 100:.0f}%)"
+                if total_value > 0 else f"{pid}: {d['position_count']} pos"
+                for pid, d in plans.items()
+            )
+            self.log(f"  [OK] Plan performance: {plan_summary}")
+
+        except Exception as e:
+            self.log(f"Plan performance computation failed: {e}", "WARNING")
+
     def run_daily_reconciliation(self, portfolio_value, total_shares):
         """
         Verify NAV integrity by cross-checking key financial figures.
@@ -612,6 +713,9 @@ Automated alert from daily_nav_enhanced.py
             # Step 4: Snapshot holdings (non-fatal)
             self.snapshot_holdings()
 
+            # Step 4b: Compute plan performance (non-fatal)
+            self.compute_plan_performance()
+
             # Step 5: Daily reconciliation (non-fatal)
             self.run_daily_reconciliation(portfolio_value, total_shares)
 
@@ -638,6 +742,24 @@ Automated alert from daily_nav_enhanced.py
                     self.log(f"  [OK] {bmk_ticker}: {count} new prices cached")
             except Exception as e:
                 self.log(f"  Benchmark cache refresh failed: {e}", "WARNING")
+
+            # Step 9: Sync to production (non-fatal)
+            try:
+                production_url = os.getenv("PRODUCTION_API_URL", "")
+                admin_key = os.getenv("ADMIN_API_KEY", "")
+                if production_url and admin_key:
+                    from scripts.sync_to_production import sync_to_production
+                    self.log("Step 9: Syncing to production...")
+                    result = sync_to_production()
+                    if result.get("success"):
+                        self.log("  [OK] Production sync completed")
+                    else:
+                        errors = result.get("errors", [])
+                        self.log(f"  Production sync had errors: {errors}", "WARNING")
+                else:
+                    self.log("Step 9: Production sync skipped (not configured)")
+            except Exception as e:
+                self.log(f"  Production sync failed: {e}", "WARNING")
 
             # Success!
             success = True
