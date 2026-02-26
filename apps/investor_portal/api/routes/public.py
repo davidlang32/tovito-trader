@@ -33,6 +33,7 @@ from ..models.database import (
     verify_prospect_email,
     validate_prospect_token,
     get_prospect_performance_data,
+    create_prospect_access_token,
 )
 from ..config import settings
 
@@ -141,19 +142,55 @@ Tovito Trader
             print(f"[WARN] Failed to send prospect verification email: {ascii(str(e))}")
 
 
-def send_prospect_verified_confirmation(name: str, email: str):
-    """Send confirmation to prospect after email verification (runs in background)."""
+def send_prospect_verified_confirmation(name: str, email: str,
+                                         fund_preview_url: str = None,
+                                         token_expires_days: int = 30):
+    """Send confirmation to prospect after email verification (runs in background).
+
+    If fund_preview_url is provided, includes the preview link and describes
+    what the prospect will find there. If None (auto-grant failed), sends a
+    degraded version without the link.
+    """
     try:
         from src.automation.email_service import send_email
 
-        subject = "Tovito Trader - Email Verified"
+        subject = "Tovito Trader - Welcome Aboard"
+
+        if fund_preview_url:
+            preview_section = f"""As a thank you for taking this first step, we have prepared an exclusive
+preview of our fund's performance for you:
+
+{fund_preview_url}
+
+On this page you will find:
+- Our returns since inception
+- Monthly performance breakdown
+- Investment plan allocation
+- Benchmark comparisons against the S&P 500 and Nasdaq-100
+
+This link is personal to you and will remain active for {token_expires_days} days.
+
+We know that trust is earned, not given. That is why we want to show you
+our track record up front, before we ever ask you to commit a dollar."""
+        else:
+            preview_section = """A member of our team will share our fund's performance details with you
+directly when they reach out."""
+
         message = f"""Hello {name},
 
-Thank you for verifying your email address.
+Thank you for verifying your email and for taking the first step toward
+exploring what Tovito Trader can do for you.
 
-A member of our team will be in touch shortly to discuss how Tovito Trader can help you achieve your investment goals.
+Tovito Trader is a pooled investment fund that uses swing trading and
+momentum-based strategies to grow our investors' capital. Our goal is
+simple: deliver consistent, transparent returns.
 
-In the meantime, if you have any questions, feel free to reply to this email.
+{preview_section}
+
+A member of our team will reach out within 24-48 hours to answer any
+questions and discuss how the fund aligns with your investment goals.
+
+In the meantime, feel free to reply to this email with any questions.
 
 Best regards,
 Tovito Trader
@@ -173,8 +210,15 @@ Tovito Trader
             print(f"[WARN] Failed to send prospect verified confirmation: {ascii(str(e))}")
 
 
-def send_admin_notification_email(name: str, email: str, phone: Optional[str], message: Optional[str]):
-    """Notify admin of new prospect inquiry (runs in background)."""
+def send_admin_notification_email(name: str, email: str, phone: Optional[str],
+                                   message: Optional[str],
+                                   fund_preview_url: str = None,
+                                   prospect_id: int = None):
+    """Notify admin of verified prospect inquiry (runs in background).
+
+    Includes prospect details, the auto-generated fund preview URL,
+    and a next-steps checklist for follow-up.
+    """
     try:
         from src.automation.email_service import send_email
 
@@ -188,19 +232,39 @@ def send_admin_notification_email(name: str, email: str, phone: Optional[str], m
         from datetime import date as date_type
         today = date_type.today().isoformat()
 
-        subject = f"New Prospect Inquiry: {name}"
-        body = f"""New prospect inquiry received from the landing page:
+        if fund_preview_url:
+            preview_section = f"URL: {fund_preview_url}  (auto-granted, 30-day expiry)"
+        else:
+            preview_section = "Auto-grant failed -- use CLI to grant access manually."
 
-Name:    {name}
-Email:   {email}
-Phone:   {phone or '(not provided)'}
-Message: {message or '(none)'}
+        prospect_id_str = str(prospect_id) if prospect_id else "<ID>"
 
-Date: {today}
-Source: Landing Page
+        subject = f"New Verified Prospect: {name}"
+        body = f"""New Verified Prospect Inquiry
+==============================
 
-To manage this prospect:
+A prospect has verified their email and is ready for follow-up.
+
+Prospect Details:
+  Name:    {name}
+  Email:   {email}
+  Phone:   {phone or '(not provided)'}
+  Message: {message or '(none)'}
+  Date:    {today}
+  Source:  Landing Page
+
+Fund Preview Access:
+  {preview_section}
+
+Next Steps:
+  [ ] Review the prospect's inquiry details above
+  [ ] Call or email the prospect within 24-48 hours
+  [ ] Discuss investment goals and answer questions
+  [ ] If interested, begin onboarding process
+
+CLI Commands:
   python scripts/prospects/list_prospects.py
+  python scripts/prospects/grant_prospect_access.py --prospect-id {prospect_id_str}
 
 ---
 Tovito Trader - Automated Notification
@@ -317,6 +381,9 @@ class VerifyProspectResponse(BaseModel):
     message: str
 
 
+_ACCESS_TOKEN_EXPIRY_DAYS = 30  # Auto-granted fund preview token expiry
+
+
 @router.get("/verify-prospect", response_model=VerifyProspectResponse)
 async def verify_prospect(
     token: str,
@@ -326,8 +393,9 @@ async def verify_prospect(
 
     On successful verification:
     - Marks prospect email_verified=1
-    - Sends confirmation email to prospect
-    - Sends admin notification email
+    - Auto-grants a fund preview access token (30-day expiry)
+    - Sends enhanced confirmation email to prospect (with preview link)
+    - Sends enhanced admin notification email (with next steps)
     """
     if not token or len(token) < 10:
         raise HTTPException(status_code=400, detail="Invalid verification link.")
@@ -340,11 +408,33 @@ async def verify_prospect(
             detail="This verification link is invalid or has expired. Please submit a new inquiry."
         )
 
+    # Auto-grant prospect access token (non-fatal)
+    fund_preview_url = None
+    try:
+        access_token = secrets.token_urlsafe(36)
+        expires_at = (
+            datetime.utcnow() + timedelta(days=_ACCESS_TOKEN_EXPIRY_DAYS)
+        ).isoformat()
+        create_prospect_access_token(
+            prospect_id=result["id"],
+            token=access_token,
+            expires_at=expires_at,
+            created_by="auto_verification",
+        )
+        fund_preview_url = f"{settings.PORTAL_BASE_URL}/fund-preview?token={access_token}"
+    except Exception as e:
+        try:
+            print(f"[WARN] Failed to auto-grant prospect access token: {e}")
+        except UnicodeEncodeError:
+            print(f"[WARN] Failed to auto-grant prospect access token: {ascii(str(e))}")
+
     # Send post-verification emails in background
     background_tasks.add_task(
         send_prospect_verified_confirmation,
         result["name"],
         result["email"],
+        fund_preview_url,
+        _ACCESS_TOKEN_EXPIRY_DAYS,
     )
     background_tasks.add_task(
         send_admin_notification_email,
@@ -352,6 +442,8 @@ async def verify_prospect(
         result["email"],
         result.get("phone"),
         result.get("notes"),
+        fund_preview_url,
+        result["id"],
     )
 
     return VerifyProspectResponse(

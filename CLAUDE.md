@@ -310,6 +310,11 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
     - **Phase 20D — Synthetic Monitoring**: New `scripts/devops/synthetic_monitor.py` with `SyntheticMonitor` class — 7 HTTP-based production checks: health endpoint, public teaser stats, login flow (synthetic account), NAV freshness (within 3 calendar days), authenticated endpoints, frontend accessibility, admin endpoint. Sends Discord (critical red) + email on failures only. Pings `HEALTHCHECK_SYNTHETIC_URL`. New `run_synthetic_monitor.bat` for Task Scheduler (every 4 hours on OPS-AUTOMATION). Health check: `get_synthetic_monitor_status()`.
     - **Health check integration**: Three new methods in `src/monitoring/health_checks.py` — `get_backup_status()`, `get_dependency_status()`, `get_synthetic_monitor_status()` with remediation guidance for each.
     - **Test suites**: `test_backup_restore.py` (20 tests), `test_dependency_monitor.py` (15 tests), `test_upgrade_packages.py` (12 tests), `test_synthetic_monitor.py` (22 tests) — 69 new tests total. One-time manual setup required for synthetic monitoring: create synthetic investor account, add env vars, create healthchecks.io monitor.
+24. **Auto-Grant Prospect Access + Enhanced Emails** (Phase 21) — Automated prospect onboarding flow that delivers value immediately after email verification. 885 tests.
+    - **Auto-grant fund preview token**: On email verification, system automatically creates a `prospect_access_tokens` entry (`secrets.token_urlsafe(36)`, 30-day expiry, `created_by='auto_verification'`) and constructs the fund preview URL. Non-fatal: if token creation fails, emails still send without the preview link (degraded mode).
+    - **Enhanced prospect confirmation email**: Replaced generic "thanks, we'll be in touch" with warm, trust-building message. Includes: company overview (pooled fund, swing/momentum strategies), auto-generated fund preview link with description of what they'll see (inception returns, monthly performance, plan allocation, benchmark comparisons), link expiry notice, "trust is earned, not given" messaging, and 24-48 hour follow-up commitment. Subject changed from "Email Verified" to "Welcome Aboard".
+    - **Enhanced admin notification email**: Replaced bare-bones notification with actionable format. Includes: "New Verified Prospect Inquiry" header, prospect details, auto-generated preview URL (or "auto-grant failed" note), next-steps checklist, and CLI commands with `--prospect-id`.
+    - **Test suite**: 8 new/modified tests in `test_landing_page_api.py` — auto-grant token creation, graceful failure degradation, preview URL and prospect_id passing, and 3 email content validation tests.
 
 ## Production Deployment (Launched Feb 2026)
 
@@ -803,7 +808,7 @@ TIMEZONE=America/New_York
 
 ## Testing
 
-- Tests are in `tests/` using pytest (~878 tests, all passing)
+- Tests are in `tests/` using pytest (~885 tests, all passing)
 - Test database setup: `scripts/setup/setup_test_database.py`
 - Test fixtures in `tests/conftest.py` — creates full schema including email_logs, daily_reconciliation, holdings_snapshots, position_snapshots, brokerage_transactions_raw, fund_flow_requests, investor_profiles, referrals, prospects, prospect_communications, plan_daily_performance, prospect_access_tokens, pii_access_log
 - **Always run tests against a test database, never production**

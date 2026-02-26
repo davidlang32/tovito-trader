@@ -642,7 +642,7 @@ class TestVerifyProspectEndpoint:
     """Tests for GET /public/verify-prospect endpoint."""
 
     def test_verify_endpoint_success(self, test_db):
-        """Valid token returns verified=True."""
+        """Valid token returns verified=True and auto-grants access."""
         prospect_id = _insert_prospect(test_db, email="endpoint@test.com")
         expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
         test_db.execute("""
@@ -664,6 +664,122 @@ class TestVerifyProspectEndpoint:
 
             # Should trigger confirmation + admin notification emails
             assert mock_bg.add_task.call_count == 2
+
+        # Verify access token was auto-created in database
+        row = test_db.execute(
+            "SELECT * FROM prospect_access_tokens WHERE prospect_id = ?",
+            (prospect_id,)
+        ).fetchone()
+        assert row is not None
+        assert row["created_by"] == "auto_verification"
+        assert row["is_revoked"] == 0
+
+    def test_verify_auto_grants_access_token(self, test_db):
+        """Verification auto-creates a prospect_access_token with correct fields."""
+        prospect_id = _insert_prospect(test_db, email="autogrant@test.com")
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+        test_db.execute("""
+            UPDATE prospects
+            SET verification_token = 'autogrant-token', verification_token_expires = ?
+            WHERE id = ?
+        """, (expires, prospect_id))
+        test_db.commit()
+
+        with _db_patch():
+            from apps.investor_portal.api.routes.public import verify_prospect
+            import asyncio
+
+            mock_bg = MagicMock()
+            asyncio.run(verify_prospect("autogrant-token", mock_bg))
+
+        # Verify token row exists with expected attributes
+        row = test_db.execute(
+            "SELECT * FROM prospect_access_tokens WHERE prospect_id = ?",
+            (prospect_id,)
+        ).fetchone()
+        assert row is not None
+        assert row["created_by"] == "auto_verification"
+        assert row["is_revoked"] == 0
+        assert row["token"] is not None
+        assert len(row["token"]) > 20  # secrets.token_urlsafe(36) produces ~48 chars
+        assert row["expires_at"] is not None
+
+    def test_verify_token_creation_failure_graceful(self, test_db):
+        """Token creation failure does not block verification or emails."""
+        prospect_id = _insert_prospect(test_db, email="failgrant@test.com")
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+        test_db.execute("""
+            UPDATE prospects
+            SET verification_token = 'failgrant-token', verification_token_expires = ?
+            WHERE id = ?
+        """, (expires, prospect_id))
+        test_db.commit()
+
+        with _db_patch(), \
+             patch("apps.investor_portal.api.routes.public.create_prospect_access_token",
+                   side_effect=Exception("DB locked")):
+            from apps.investor_portal.api.routes.public import verify_prospect
+            import asyncio
+
+            mock_bg = MagicMock()
+            result = asyncio.run(verify_prospect("failgrant-token", mock_bg))
+
+            assert result.verified is True
+            # Both background tasks still scheduled
+            assert mock_bg.add_task.call_count == 2
+            # Confirmation email should receive None for fund_preview_url
+            confirmation_call = mock_bg.add_task.call_args_list[0]
+            assert confirmation_call[0][3] is None  # fund_preview_url
+
+    def test_verify_confirmation_email_has_preview_url(self, test_db):
+        """Successful verification passes fund preview URL to confirmation email."""
+        prospect_id = _insert_prospect(test_db, email="urlcheck@test.com")
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+        test_db.execute("""
+            UPDATE prospects
+            SET verification_token = 'urlcheck-token', verification_token_expires = ?
+            WHERE id = ?
+        """, (expires, prospect_id))
+        test_db.commit()
+
+        with _db_patch():
+            from apps.investor_portal.api.routes.public import verify_prospect
+            import asyncio
+
+            mock_bg = MagicMock()
+            asyncio.run(verify_prospect("urlcheck-token", mock_bg))
+
+            # Confirmation email task (first add_task call)
+            confirmation_call = mock_bg.add_task.call_args_list[0]
+            fund_preview_url = confirmation_call[0][3]  # 4th positional arg
+            assert fund_preview_url is not None
+            assert "/fund-preview?token=" in fund_preview_url
+
+    def test_verify_admin_email_has_prospect_id(self, test_db):
+        """Admin notification receives prospect_id for CLI commands."""
+        prospect_id = _insert_prospect(test_db, email="adminid@test.com")
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+        test_db.execute("""
+            UPDATE prospects
+            SET verification_token = 'adminid-token', verification_token_expires = ?
+            WHERE id = ?
+        """, (expires, prospect_id))
+        test_db.commit()
+
+        with _db_patch():
+            from apps.investor_portal.api.routes.public import verify_prospect
+            import asyncio
+
+            mock_bg = MagicMock()
+            asyncio.run(verify_prospect("adminid-token", mock_bg))
+
+            # Admin notification task (second add_task call)
+            admin_call = mock_bg.add_task.call_args_list[1]
+            passed_preview_url = admin_call[0][5]  # 6th positional arg
+            passed_prospect_id = admin_call[0][6]  # 7th positional arg
+            assert passed_preview_url is not None
+            assert "/fund-preview?token=" in passed_preview_url
+            assert passed_prospect_id == prospect_id
 
     def test_verify_endpoint_invalid_token(self, test_db):
         """Invalid token returns 400."""
@@ -692,6 +808,69 @@ class TestVerifyProspectEndpoint:
                 asyncio.run(verify_prospect("short", mock_bg))
 
             assert exc_info.value.status_code == 400
+
+
+# ============================================================
+# Enhanced Post-Verification Email Tests
+# ============================================================
+
+class TestEnhancedPostVerificationEmails:
+    """Tests for the enhanced email content after prospect verification."""
+
+    def test_confirmation_email_includes_preview_url(self):
+        """Confirmation email body includes the fund preview URL and expiry."""
+        with patch("src.automation.email_service.send_email") as mock_send:
+            from apps.investor_portal.api.routes.public import send_prospect_verified_confirmation
+            send_prospect_verified_confirmation(
+                "Test User", "test@example.com",
+                fund_preview_url="https://tovitotrader.com/fund-preview?token=abc123",
+                token_expires_days=30,
+            )
+            mock_send.assert_called_once()
+            call_kwargs = mock_send.call_args
+            body = call_kwargs[1].get("message") or call_kwargs[0][2]
+            assert "fund-preview?token=abc123" in body
+            assert "30 days" in body
+            assert "trust" in body.lower()
+            assert "Tovito Trader" in body
+
+    def test_confirmation_email_without_preview_url(self):
+        """Confirmation email works in degraded mode (no preview URL)."""
+        with patch("src.automation.email_service.send_email") as mock_send:
+            from apps.investor_portal.api.routes.public import send_prospect_verified_confirmation
+            send_prospect_verified_confirmation(
+                "Test User", "test@example.com",
+                fund_preview_url=None,
+            )
+            mock_send.assert_called_once()
+            call_kwargs = mock_send.call_args
+            body = call_kwargs[1].get("message") or call_kwargs[0][2]
+            assert "fund-preview" not in body
+            assert "Tovito Trader" in body
+
+    def test_admin_email_includes_preview_url_and_prospect_id(self):
+        """Admin notification includes preview URL and CLI commands with prospect ID."""
+        with patch("src.automation.email_service.send_email") as mock_send:
+            from apps.investor_portal.api.routes.public import send_admin_notification_email
+            from apps.investor_portal.api.config import settings as api_settings
+            # Temporarily set ADMIN_EMAIL so the function doesn't early-return
+            original_admin = api_settings.ADMIN_EMAIL
+            api_settings.ADMIN_EMAIL = "admin@test.com"
+            try:
+                send_admin_notification_email(
+                    "Test User", "test@example.com", "555-0000", "Interested in the fund",
+                    fund_preview_url="https://tovitotrader.com/fund-preview?token=xyz789",
+                    prospect_id=42,
+                )
+            finally:
+                api_settings.ADMIN_EMAIL = original_admin
+            mock_send.assert_called_once()
+            call_kwargs = mock_send.call_args
+            body = call_kwargs[1].get("message") or call_kwargs[0][2]
+            assert "fund-preview?token=xyz789" in body
+            assert "--prospect-id 42" in body
+            assert "Next Steps" in body
+            assert "[ ]" in body  # Checklist items
 
 
 # ============================================================
