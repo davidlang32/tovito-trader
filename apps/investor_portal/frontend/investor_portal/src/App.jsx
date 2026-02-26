@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Loader2, AlertTriangle, LogIn, Clock } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import Layout from './components/Layout';
 import LandingPage from './pages/LandingPage';
 import DashboardPage from './pages/DashboardPage';
@@ -140,6 +141,7 @@ const PublicRoute = ({ children }) => {
 
 const App = () => {
   return (
+    <ThemeProvider>
     <BrowserRouter>
       <AuthProvider>
         <SessionWarningBanner />
@@ -175,6 +177,7 @@ const App = () => {
         </Routes>
       </AuthProvider>
     </BrowserRouter>
+    </ThemeProvider>
   );
 };
 

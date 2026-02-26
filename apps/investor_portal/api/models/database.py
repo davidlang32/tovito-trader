@@ -172,11 +172,84 @@ def get_investor_position(investor_id: str) -> Optional[Dict]:
 # Value History (for portfolio value chart)
 # ============================================================
 
+def _interpolate_trading_day_gaps(points: List[Dict]) -> List[Dict]:
+    """Fill gaps in value history by interpolating missing trading days.
+
+    When the daily_nav table has gaps (e.g., pipeline didn't run for
+    several days), the chart shows a misleading straight line. This
+    function detects gaps > 1 trading day and inserts linearly
+    interpolated points for each missing weekday (Mon-Fri).
+
+    Interpolated points have daily_change_pct=None and are marked with
+    is_interpolated=True so the frontend can distinguish them.
+
+    US market holidays are not excluded — a few extra interpolated
+    points on holidays are visually harmless.
+    """
+    if len(points) < 2:
+        return points
+
+    filled = [points[0]]
+
+    for i in range(1, len(points)):
+        prev = points[i - 1]
+        curr = points[i]
+
+        prev_date = datetime.strptime(prev["date"], "%Y-%m-%d")
+        curr_date = datetime.strptime(curr["date"], "%Y-%m-%d")
+        gap_days = (curr_date - prev_date).days
+
+        # Only interpolate if gap is more than 3 calendar days
+        # (normal weekend = 2 days Sat-Sun, so gap of 3 = Fri->Mon is normal)
+        if gap_days > 3:
+            # Count weekdays in the gap (excluding endpoints)
+            weekdays_in_gap = []
+            d = prev_date + timedelta(days=1)
+            while d < curr_date:
+                if d.weekday() < 5:  # Mon-Fri
+                    weekdays_in_gap.append(d)
+                d += timedelta(days=1)
+
+            if weekdays_in_gap:
+                # Linear interpolation of portfolio value and nav_per_share
+                total_steps = len(weekdays_in_gap) + 1
+                val_start = prev["portfolio_value"]
+                val_end = curr["portfolio_value"]
+                nav_start = prev["nav_per_share"]
+                nav_end = curr["nav_per_share"]
+
+                for step_idx, wd in enumerate(weekdays_in_gap, start=1):
+                    fraction = step_idx / total_steps
+                    interp_val = round(
+                        val_start + (val_end - val_start) * fraction, 2
+                    )
+                    interp_nav = round(
+                        nav_start + (nav_end - nav_start) * fraction, 4
+                    )
+                    filled.append({
+                        "date": wd.strftime("%Y-%m-%d"),
+                        "portfolio_value": interp_val,
+                        "shares": prev["shares"],
+                        "nav_per_share": interp_nav,
+                        "daily_change_pct": None,
+                        "transaction_type": None,
+                        "transaction_amount": None,
+                    })
+
+        filled.append(curr)
+
+    return filled
+
+
 def get_investor_value_history(investor_id: str, days: int = 90) -> List[Dict]:
     """Compute investor's portfolio value for each day in the given range.
 
     For each day of NAV data, reconstruct the investor's share count
     (running total from transactions) and multiply by that day's NAV.
+
+    Gaps of more than 3 calendar days in the daily_nav table are filled
+    with linearly interpolated weekday points so the chart renders
+    smoothly instead of showing a misleading straight line.
 
     Returns list of dicts with: date, portfolio_value, shares,
     nav_per_share, daily_change_pct, transaction_type, transaction_amount.
@@ -264,6 +337,9 @@ def get_investor_value_history(investor_id: str, days: int = 90) -> List[Dict]:
                 point["transaction_amount"] = round(abs(t_amount), 2)
 
             result.append(point)
+
+        # Fill gaps in the data with interpolated trading day points
+        result = _interpolate_trading_day_gaps(result)
 
         return result
 

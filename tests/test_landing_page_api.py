@@ -692,3 +692,116 @@ class TestVerifyProspectEndpoint:
                 asyncio.run(verify_prospect("short", mock_bg))
 
             assert exc_info.value.status_code == 400
+
+
+# ============================================================
+# Value History Interpolation Tests
+# ============================================================
+
+class TestInterpolateTradingDayGaps:
+    """Tests for _interpolate_trading_day_gaps() helper function."""
+
+    def _make_point(self, date_str, value=10000.0, nav=1.0):
+        return {
+            "date": date_str,
+            "portfolio_value": value,
+            "shares": 10000.0,
+            "nav_per_share": nav,
+            "daily_change_pct": None,
+            "transaction_type": None,
+            "transaction_amount": None,
+        }
+
+    def test_no_gaps(self):
+        """Consecutive trading days should pass through unchanged."""
+        from apps.investor_portal.api.models.database import _interpolate_trading_day_gaps
+
+        points = [
+            self._make_point("2026-02-23", 10000),
+            self._make_point("2026-02-24", 10100),
+            self._make_point("2026-02-25", 10200),
+        ]
+        result = _interpolate_trading_day_gaps(points)
+        assert len(result) == 3
+
+    def test_weekend_gap_not_interpolated(self):
+        """Normal Fri->Mon gap (3 calendar days) should NOT trigger interpolation."""
+        from apps.investor_portal.api.models.database import _interpolate_trading_day_gaps
+
+        points = [
+            self._make_point("2026-02-20", 10000),  # Friday
+            self._make_point("2026-02-23", 10100),  # Monday
+        ]
+        result = _interpolate_trading_day_gaps(points)
+        assert len(result) == 2
+
+    def test_multi_day_gap_interpolated(self):
+        """A gap of >3 calendar days inserts interpolated weekday points."""
+        from apps.investor_portal.api.models.database import _interpolate_trading_day_gaps
+
+        # Feb 1 (Sun actually, but pretend it's data) to Feb 19 = 18 day gap
+        points = [
+            self._make_point("2026-02-01", 23675.61, 1.1587),
+            self._make_point("2026-02-19", 27406.71, 1.3413),
+        ]
+        result = _interpolate_trading_day_gaps(points)
+
+        # Should have original 2 + interpolated weekdays between
+        assert len(result) > 2
+
+        # First and last should be the originals
+        assert result[0]["date"] == "2026-02-01"
+        assert result[-1]["date"] == "2026-02-19"
+
+        # All interpolated dates should be weekdays
+        for pt in result[1:-1]:
+            d = datetime.strptime(pt["date"], "%Y-%m-%d")
+            assert d.weekday() < 5, f"{pt['date']} is a weekend"
+
+        # Values should be monotonically increasing (since start < end)
+        for i in range(1, len(result)):
+            assert result[i]["portfolio_value"] >= result[i - 1]["portfolio_value"]
+
+    def test_interpolated_values_are_linear(self):
+        """Interpolated values should follow linear progression."""
+        from apps.investor_portal.api.models.database import _interpolate_trading_day_gaps
+
+        # Mon Feb 9 to Mon Feb 16 (7 calendar days)
+        # Weekdays in gap: Tue 10, Wed 11, Thu 12, Fri 13 = 4 weekdays
+        # (Feb 14 Sat, Feb 15 Sun are excluded)
+        points = [
+            self._make_point("2026-02-09", 10000.0, 1.0000),  # Monday
+            self._make_point("2026-02-16", 11000.0, 1.1000),  # Monday
+        ]
+        result = _interpolate_trading_day_gaps(points)
+
+        # 4 weekdays in gap + 2 endpoints = 6
+        assert len(result) == 6
+
+        # Check intermediate values increase steadily
+        values = [pt["portfolio_value"] for pt in result]
+        for i in range(1, len(values)):
+            assert values[i] > values[i - 1]
+
+    def test_empty_and_single_point(self):
+        """Edge cases: empty list and single point should pass through."""
+        from apps.investor_portal.api.models.database import _interpolate_trading_day_gaps
+
+        assert _interpolate_trading_day_gaps([]) == []
+
+        single = [self._make_point("2026-02-25")]
+        assert _interpolate_trading_day_gaps(single) == single
+
+    def test_interpolated_nav_matches_portfolio_direction(self):
+        """NAV per share should also be interpolated in the same direction."""
+        from apps.investor_portal.api.models.database import _interpolate_trading_day_gaps
+
+        points = [
+            self._make_point("2026-02-01", 23675.61, 1.1587),
+            self._make_point("2026-02-19", 27406.71, 1.3413),
+        ]
+        result = _interpolate_trading_day_gaps(points)
+
+        navs = [pt["nav_per_share"] for pt in result]
+        for i in range(1, len(navs)):
+            assert navs[i] >= navs[i - 1]

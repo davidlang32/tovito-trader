@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import {
   Settings, User, Lock, Mail, Briefcase, Shield, CheckCircle2,
   AlertCircle, Loader2, Edit3, Save, X, ExternalLink, ArrowDownRight,
-  ArrowUpRight, ChevronDown, ChevronUp, Phone, MapPin, Globe
+  ArrowUpRight, ChevronDown, ChevronUp, Phone, MapPin, Globe, Moon, Sun, Monitor
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL } from '../config';
 
 // ============================================================
@@ -419,26 +420,6 @@ const PreferencesSection = () => {
 
       <div className="space-y-4">
         <div>
-          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Statement Delivery</p>
-          <div className="flex gap-3">
-            <ToggleOption
-              label="Electronic"
-              description="View statements in the portal and receive email notifications"
-              groupKey="statement_delivery"
-              value="electronic"
-              currentValue={prefs.statement_delivery}
-            />
-            <ToggleOption
-              label="Both"
-              description="Electronic delivery plus physical mail"
-              groupKey="statement_delivery"
-              value="both"
-              currentValue={prefs.statement_delivery}
-            />
-          </div>
-        </div>
-
-        <div>
           <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Communication Method</p>
           <div className="flex gap-3">
             <ToggleOption
@@ -456,6 +437,60 @@ const PreferencesSection = () => {
               currentValue={prefs.communication_preference}
             />
           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// APPEARANCE SECTION
+// ============================================================
+
+const AppearanceSection = () => {
+  const { darkMode, setDarkMode } = useTheme();
+
+  const ThemeButton = ({ label, icon: Icon, value, description }) => (
+    <button
+      onClick={() => setDarkMode(value)}
+      className={`flex-1 p-3 rounded-lg border-2 text-left transition ${
+        darkMode === value
+          ? 'border-emerald-500 bg-emerald-50/50'
+          : 'border-gray-200 bg-white hover:border-gray-300'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+          darkMode === value ? 'border-emerald-500' : 'border-gray-300'
+        }`}>
+          {darkMode === value && <div className="w-2 h-2 rounded-full bg-emerald-500" />}
+        </div>
+        <Icon className="w-4 h-4 text-gray-600" />
+        <span className="text-sm font-medium text-gray-900">{label}</span>
+      </div>
+      <p className="text-[11px] text-gray-500 mt-1 ml-6">{description}</p>
+    </button>
+  );
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+      <SectionHeader icon={Moon} title="Appearance" subtitle="Customize the look and feel" iconColor="text-indigo-600" iconBg="bg-indigo-50" />
+
+      <div>
+        <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Theme</p>
+        <div className="flex gap-3">
+          <ThemeButton
+            label="Light"
+            icon={Sun}
+            value={false}
+            description="Light background with dark text"
+          />
+          <ThemeButton
+            label="Dark"
+            icon={Moon}
+            value={true}
+            description="Dark background with light text"
+          />
         </div>
       </div>
     </div>
@@ -519,6 +554,7 @@ const SettingsPage = () => {
       <ProfileSection />
       <PasswordSection />
       <PreferencesSection />
+      <AppearanceSection />
       <QuickLinks />
     </div>
   );

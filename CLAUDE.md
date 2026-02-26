@@ -194,7 +194,7 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
 7. **Admin Portal** — Separate local-only React app (`apps/admin_portal/`) for the fund manager to view all investor data, troubleshoot what each investor sees, and manage prospects. Never deployed publicly — runs only on localhost. Option A architecture: completely separate from investor portal with its own frontend and potentially its own API routes.
 8. **PII Security Hardening (HIGH PRIORITY)** — Comprehensive security review and hardening for storing sensitive investor PII. Current state: Fernet encryption at rest for SSN, bank details, tax ID in `investor_profiles` via `src/utils/encryption.py`. Future needs: encryption key rotation strategy, field-level access logging (who accessed what PII and when), data retention policies, secure backup procedures for encrypted fields, ENCRYPTION_KEY disaster recovery plan, SOC 2 / regulatory compliance readiness assessment, network-level protections if PII is ever served via API, and penetration testing. Goal: meet the security bar that larger firms maintain for investor data — defense in depth, principle of least privilege, auditable access trails. This is a prerequisite for scaling beyond a small investor base.
 9. **Primary Laptop Failover** — Long-term goal to enable OPS-AUTOMATION as a warm standby for OPS-PRIMARY. Would require secure database replication strategy and runbook for failover activation. Not urgent — focus on automation split first.
-10. **Portal Dark Theme Redesign** — Carry the dark emerald gradient aesthetic from the landing page (`LandingPage.jsx`) into the authenticated investor portal pages (Dashboard, Performance, Portfolio, Activity, Reports, Settings). Currently the landing page uses a dark theme (slate-950/900 backgrounds, emerald-400/500 accents, gradient fills, glow shadows) while the authenticated pages use a light theme (white backgrounds, gray borders). Goal: unified visual identity across the entire site using the emerald gradient color palette: `bg-gradient-to-br from-slate-900 via-emerald-900 to-slate-900`, `text-emerald-400`, `shadow-emerald-500/25`, `bg-emerald-500/10` card surfaces.
+10. **Portal Dark Theme Redesign** — Extend the dark emerald gradient from the sidebar (Phase 16) into the authenticated portal page content areas (Dashboard, Performance, Portfolio, Activity, Reports, Settings). Sidebar already uses the gradient. Infrastructure in place: `ThemeContext.jsx` with `useTheme()` hook, `darkMode: 'class'` Tailwind strategy enabled, dark mode toggle in Settings. Remaining work: add `dark:` variants to all portal page components — cards (`dark:bg-slate-800/50 dark:border-slate-700/50`), text (`dark:text-slate-300`), backgrounds (`dark:bg-slate-950`), and form inputs. Goal: unified visual identity when dark mode is toggled on.
 
 ## Recently Completed Features
 
@@ -266,6 +266,12 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
     - **New database functions**: `store_prospect_verification_token()`, `verify_prospect_email()`. Modified `create_prospect()` to return `email_verified` status and `prospect_id` for duplicates.
     - **VerifyProspectPage.jsx**: New React page at `/verify-prospect?token=XXX`. Dark emerald theme. States: loading, success (green checkmark), error (invalid/expired link), network error. Links back to landing page.
     - **Inquiry form UX**: Success message changed from "Thank You!" to "Check Your Email" with Mail icon and verification instructions.
+19. **Settings & UI Polish + Chart Gap Fix** (Phase 16) — Settings page cleanup, dark mode infrastructure, sidebar gradient, and portfolio chart interpolation. 759 tests.
+    - **Statement Delivery removal**: Removed the "Both" (electronic + physical mail) toggle from Settings page. Electronic-only delivery — no mail option offered. Fund is a pass-through entity with no regulatory requirement for mailed statements.
+    - **Dark mode toggle**: New `ThemeContext.jsx` with `ThemeProvider` and `useTheme()` hook. Persists to `localStorage`. Tailwind `darkMode: 'class'` strategy enabled. New `AppearanceSection` in Settings page with Light/Dark toggle buttons. Theme wrapped around entire app in `App.jsx`.
+    - **Sidebar emerald gradient**: Changed sidebar background from `bg-slate-800` to `bg-gradient-to-b from-slate-900 via-emerald-900 to-slate-900` matching the landing page gradient. Updated nav item active state to `bg-emerald-500/15 text-emerald-400`, hover states to `bg-emerald-500/10`. Logo shadow updated to `shadow-emerald-500/30`. Border colors updated to `border-emerald-800/50`.
+    - **Portfolio chart gap interpolation**: New `_interpolate_trading_day_gaps()` helper in `database.py`. Detects gaps >3 calendar days in `daily_nav` data and inserts linearly interpolated weekday points (Mon-Fri). Fixes the Feb 2-18 gap where the chart showed a misleading straight line. Interpolation covers both portfolio_value and nav_per_share. Applied as post-processing in `get_investor_value_history()`.
+    - **New tests**: 6 tests for `_interpolate_trading_day_gaps()` covering no gaps, weekend gaps, multi-day gaps, linear value progression, edge cases, and NAV direction consistency.
 
 ## Production Deployment (Launched Feb 2026)
 
@@ -638,7 +644,7 @@ TIMEZONE=America/New_York
 
 ## Testing
 
-- Tests are in `tests/` using pytest (~753 tests, all passing)
+- Tests are in `tests/` using pytest (~759 tests, all passing)
 - Test database setup: `scripts/setup/setup_test_database.py`
 - Test fixtures in `tests/conftest.py` — creates full schema including email_logs, daily_reconciliation, holdings_snapshots, position_snapshots, brokerage_transactions_raw, fund_flow_requests, investor_profiles, referrals, prospects, prospect_communications, plan_daily_performance, prospect_access_tokens
 - **Always run tests against a test database, never production**

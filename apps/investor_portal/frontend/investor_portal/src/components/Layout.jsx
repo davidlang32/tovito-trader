@@ -42,14 +42,14 @@ const Layout = () => {
       <aside
         className={`
           fixed lg:sticky top-0 left-0 h-screen z-50 flex flex-col
-          bg-slate-800 text-white transition-all duration-300
+          bg-gradient-to-b from-slate-900 via-emerald-900 to-slate-900 text-white transition-all duration-300
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
           ${collapsed ? 'w-16' : 'w-60'}
         `}
       >
         {/* Logo area */}
-        <div className={`flex items-center h-16 border-b border-slate-700 px-4 ${collapsed ? 'justify-center' : 'gap-3'}`}>
-          <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0">
+        <div className={`flex items-center h-16 border-b border-emerald-800/50 px-4 ${collapsed ? 'justify-center' : 'gap-3'}`}>
+          <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-500/30">
             <TrendingUp className="w-5 h-5 text-white" />
           </div>
           {!collapsed && (
@@ -78,8 +78,8 @@ const Layout = () => {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
                 ${isActive
-                  ? 'bg-slate-700 text-white border-l-2 border-emerald-400'
-                  : 'text-slate-300 hover:bg-slate-700/50 hover:text-white border-l-2 border-transparent'
+                  ? 'bg-emerald-500/15 text-emerald-400 border-l-2 border-emerald-400'
+                  : 'text-slate-300 hover:bg-emerald-500/10 hover:text-white border-l-2 border-transparent'
                 }
                 ${collapsed ? 'justify-center px-2' : ''}`
               }
@@ -93,7 +93,7 @@ const Layout = () => {
           <button
             onClick={() => { navigate('/help'); setMobileOpen(false); }}
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-              text-slate-300 hover:bg-slate-700/50 hover:text-white border-l-2 border-transparent w-full
+              text-slate-300 hover:bg-emerald-500/10 hover:text-white border-l-2 border-transparent w-full
               ${collapsed ? 'justify-center px-2' : ''}`}
           >
             <HelpCircle className="w-5 h-5 flex-shrink-0" />
@@ -104,13 +104,13 @@ const Layout = () => {
         {/* Collapse toggle (desktop only) */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="hidden lg:flex items-center justify-center p-2 mx-2 mb-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition"
+          className="hidden lg:flex items-center justify-center p-2 mx-2 mb-2 text-slate-400 hover:text-white hover:bg-emerald-500/10 rounded-lg transition"
         >
           {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
 
         {/* User section */}
-        <div className={`border-t border-slate-700 p-3 ${collapsed ? 'flex flex-col items-center' : ''}`}>
+        <div className={`border-t border-emerald-800/50 p-3 ${collapsed ? 'flex flex-col items-center' : ''}`}>
           <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
             <div className="w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold">
               {initial}
