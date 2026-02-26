@@ -428,10 +428,16 @@ def _create_test_schema(conn):
             source TEXT,
             notes TEXT,
             last_contact_date TEXT,
+            email_verified INTEGER DEFAULT 0,
+            verification_token TEXT,
+            verification_token_expires TIMESTAMP,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    conn.execute(
+        "CREATE INDEX idx_prospects_verification_token ON prospects(verification_token)"
+    )
 
     # Prospect communications table
     conn.execute("""

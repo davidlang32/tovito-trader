@@ -108,6 +108,8 @@ def _run_data_migrations():
         conn = get_connection()
         cursor = conn.cursor()
         try:
+            migrations_applied = 0
+
             # Phase 10: Soft-delete test transactions (IDs 1, 2)
             # These are +100/-100 test entries from Jan 14 that net to zero
             cursor.execute("""
@@ -120,7 +122,30 @@ def _run_data_migrations():
             if cursor.rowcount > 0:
                 conn.commit()
                 print(f"   [OK] Data migration: soft-deleted {cursor.rowcount} test transactions")
-            else:
+                migrations_applied += 1
+
+            # Phase 15: Add prospect email verification columns
+            cursor.execute("PRAGMA table_info(prospects)")
+            existing_cols = {row[1] for row in cursor.fetchall()}
+            prospect_cols = [
+                ("email_verified", "INTEGER DEFAULT 0"),
+                ("verification_token", "TEXT"),
+                ("verification_token_expires", "TIMESTAMP"),
+            ]
+            for col_name, col_def in prospect_cols:
+                if col_name not in existing_cols:
+                    cursor.execute(
+                        f"ALTER TABLE prospects ADD COLUMN {col_name} {col_def}"
+                    )
+                    migrations_applied += 1
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_prospects_verification_token
+                ON prospects(verification_token)
+            """)
+            if migrations_applied > 0:
+                conn.commit()
+
+            if migrations_applied == 0:
                 print("   [OK] Data migrations: nothing to do")
         finally:
             conn.close()

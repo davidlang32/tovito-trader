@@ -4,6 +4,7 @@ Tests for the public landing page API endpoints.
 Tests cover:
 - get_teaser_stats() database function
 - create_prospect() database function
+- Prospect email verification flow
 - Public API endpoint behavior (no auth required)
 - Input validation and rate limiting
 - Email enumeration prevention
@@ -12,7 +13,8 @@ Tests cover:
 import pytest
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 # Test database path (matches conftest.py)
@@ -147,7 +149,8 @@ class TestCreateProspect:
             result2 = create_prospect(name="John Again", email="john@example.com")
             assert result2["success"] is True
             assert result2["is_duplicate"] is True
-            assert result2["prospect_id"] is None
+            assert result2["prospect_id"] == result1["prospect_id"]
+            assert result2["email_verified"] == 0
 
     def test_create_prospect_minimal_fields(self, test_db):
         """Only name and email (phone/message null)."""
@@ -295,8 +298,8 @@ class TestPublicInquiryEndpoint:
             assert result2.success is True
             assert result1.message == result2.message
 
-    def test_inquiry_sends_emails_for_new_only(self, test_db):
-        """Background emails are only sent for new prospects, not duplicates."""
+    def test_inquiry_sends_verification_email(self, test_db):
+        """New prospect submission sends verification email (not confirmation)."""
         with patch("apps.investor_portal.api.models.database.get_database_path") as mock_path:
             mock_path.return_value = TEST_DB_PATH
 
@@ -310,19 +313,37 @@ class TestPublicInquiryEndpoint:
             mock_request = MagicMock()
             mock_request.client.host = "127.0.0.3"
 
-            # First submission — should add background tasks
+            # First submission — should add 1 background task (verification email)
             mock_bg1 = MagicMock()
             asyncio.run(
                 submit_inquiry(request, mock_request, mock_bg1)
             )
-            assert mock_bg1.add_task.call_count == 2  # confirmation + admin notification
+            assert mock_bg1.add_task.call_count == 1  # verification email only
 
-            # Second submission (duplicate) — should NOT add background tasks
+    def test_inquiry_resends_verification_for_unverified_duplicate(self, test_db):
+        """Duplicate email that is not yet verified gets verification resent."""
+        with patch("apps.investor_portal.api.models.database.get_database_path") as mock_path:
+            mock_path.return_value = TEST_DB_PATH
+
+            from apps.investor_portal.api.routes.public import submit_inquiry, InquiryRequest, _inquiry_rate_limit
+            import asyncio
+
+            _inquiry_rate_limit.clear()
+
+            request = InquiryRequest(name="Repeat User", email="repeat@example.com")
+
+            mock_request = MagicMock()
+            mock_request.client.host = "127.0.0.4"
+
+            # First submission
+            mock_bg1 = MagicMock()
+            asyncio.run(submit_inquiry(request, mock_request, mock_bg1))
+            assert mock_bg1.add_task.call_count == 1
+
+            # Second submission (duplicate, not verified) — should resend verification
             mock_bg2 = MagicMock()
-            asyncio.run(
-                submit_inquiry(request, mock_request, mock_bg2)
-            )
-            assert mock_bg2.add_task.call_count == 0
+            asyncio.run(submit_inquiry(request, mock_request, mock_bg2))
+            assert mock_bg2.add_task.call_count == 1  # resend verification
 
 
 # ============================================================
@@ -437,3 +458,237 @@ class TestInquiryValidation:
 
         with pytest.raises(ValidationError):
             InquiryRequest(name="Test", email="test@example.com", message="A" * 1001)
+
+
+# ============================================================
+# Prospect Email Verification — Database Function Tests
+# ============================================================
+
+def _db_patch():
+    """Helper to patch get_database_path for test DB."""
+    return patch(
+        "apps.investor_portal.api.models.database.get_database_path",
+        return_value=Path(TEST_DB_PATH),
+    )
+
+
+def _insert_prospect(test_db, name="Test User", email="test@verify.com",
+                      phone="555-0000", notes="Test notes"):
+    """Helper to insert a prospect directly into the test DB."""
+    test_db.execute("""
+        INSERT INTO prospects (name, email, phone, date_added, status, source, notes,
+                               created_at, updated_at)
+        VALUES (?, ?, ?, date('now'), 'Active', 'test', ?, datetime('now'), datetime('now'))
+    """, (name, email, phone, notes))
+    test_db.commit()
+    cursor = test_db.execute("SELECT id FROM prospects WHERE email = ?", (email,))
+    return cursor.fetchone()["id"]
+
+
+class TestStoreProspectVerificationToken:
+    """Tests for store_prospect_verification_token() database function."""
+
+    def test_store_token_success(self, test_db):
+        """Token stored successfully on existing prospect."""
+        prospect_id = _insert_prospect(test_db)
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+
+        with _db_patch():
+            from apps.investor_portal.api.models.database import store_prospect_verification_token
+
+            result = store_prospect_verification_token(prospect_id, "test-token-123", expires)
+            assert result is True
+
+            # Verify token is stored
+            cursor = test_db.execute(
+                "SELECT verification_token, verification_token_expires FROM prospects WHERE id = ?",
+                (prospect_id,)
+            )
+            row = cursor.fetchone()
+            assert row["verification_token"] == "test-token-123"
+            assert row["verification_token_expires"] == expires
+
+    def test_store_token_nonexistent_prospect(self, test_db):
+        """Returns False for nonexistent prospect ID."""
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+
+        with _db_patch():
+            from apps.investor_portal.api.models.database import store_prospect_verification_token
+
+            result = store_prospect_verification_token(99999, "token-xxx", expires)
+            assert result is False
+
+    def test_store_token_overwrites_previous(self, test_db):
+        """Storing a new token replaces the old one."""
+        prospect_id = _insert_prospect(test_db)
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+
+        with _db_patch():
+            from apps.investor_portal.api.models.database import store_prospect_verification_token
+
+            store_prospect_verification_token(prospect_id, "old-token", expires)
+            store_prospect_verification_token(prospect_id, "new-token", expires)
+
+            cursor = test_db.execute(
+                "SELECT verification_token FROM prospects WHERE id = ?",
+                (prospect_id,)
+            )
+            assert cursor.fetchone()["verification_token"] == "new-token"
+
+
+class TestVerifyProspectEmail:
+    """Tests for verify_prospect_email() database function."""
+
+    def test_verify_valid_token(self, test_db):
+        """Valid token sets email_verified=1 and returns prospect info."""
+        prospect_id = _insert_prospect(test_db, name="Valid User", email="valid@test.com",
+                                        phone="555-1111", notes="Test msg")
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+        test_db.execute("""
+            UPDATE prospects
+            SET verification_token = 'valid-token', verification_token_expires = ?
+            WHERE id = ?
+        """, (expires, prospect_id))
+        test_db.commit()
+
+        with _db_patch():
+            from apps.investor_portal.api.models.database import verify_prospect_email
+
+            result = verify_prospect_email("valid-token")
+            assert result is not None
+            assert result["id"] == prospect_id
+            assert result["name"] == "Valid User"
+            assert result["email"] == "valid@test.com"
+            assert result["phone"] == "555-1111"
+            assert result["notes"] == "Test msg"
+
+            # Verify email_verified is set
+            cursor = test_db.execute(
+                "SELECT email_verified, verification_token FROM prospects WHERE id = ?",
+                (prospect_id,)
+            )
+            row = cursor.fetchone()
+            assert row["email_verified"] == 1
+            assert row["verification_token"] is None  # Token cleared
+
+    def test_verify_expired_token(self, test_db):
+        """Expired token returns None."""
+        prospect_id = _insert_prospect(test_db, email="expired@test.com")
+        expired = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+        test_db.execute("""
+            UPDATE prospects
+            SET verification_token = 'expired-token', verification_token_expires = ?
+            WHERE id = ?
+        """, (expired, prospect_id))
+        test_db.commit()
+
+        with _db_patch():
+            from apps.investor_portal.api.models.database import verify_prospect_email
+
+            result = verify_prospect_email("expired-token")
+            assert result is None
+
+    def test_verify_invalid_token(self, test_db):
+        """Unknown token returns None."""
+        with _db_patch():
+            from apps.investor_portal.api.models.database import verify_prospect_email
+
+            result = verify_prospect_email("nonexistent-token")
+            assert result is None
+
+    def test_verify_already_verified(self, test_db):
+        """Already-verified prospect returns success (idempotent)."""
+        prospect_id = _insert_prospect(test_db, email="already@test.com")
+        test_db.execute("""
+            UPDATE prospects
+            SET email_verified = 1, verification_token = 'used-token'
+            WHERE id = ?
+        """, (prospect_id,))
+        test_db.commit()
+
+        with _db_patch():
+            from apps.investor_portal.api.models.database import verify_prospect_email
+
+            result = verify_prospect_email("used-token")
+            assert result is not None
+            assert result["email"] == "already@test.com"
+
+    def test_verify_clears_token_fields(self, test_db):
+        """After verification, token and expires are NULL."""
+        prospect_id = _insert_prospect(test_db, email="clear@test.com")
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+        test_db.execute("""
+            UPDATE prospects
+            SET verification_token = 'clear-token', verification_token_expires = ?
+            WHERE id = ?
+        """, (expires, prospect_id))
+        test_db.commit()
+
+        with _db_patch():
+            from apps.investor_portal.api.models.database import verify_prospect_email
+
+            verify_prospect_email("clear-token")
+
+            cursor = test_db.execute(
+                "SELECT verification_token, verification_token_expires FROM prospects WHERE id = ?",
+                (prospect_id,)
+            )
+            row = cursor.fetchone()
+            assert row["verification_token"] is None
+            assert row["verification_token_expires"] is None
+
+
+class TestVerifyProspectEndpoint:
+    """Tests for GET /public/verify-prospect endpoint."""
+
+    def test_verify_endpoint_success(self, test_db):
+        """Valid token returns verified=True."""
+        prospect_id = _insert_prospect(test_db, email="endpoint@test.com")
+        expires = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+        test_db.execute("""
+            UPDATE prospects
+            SET verification_token = 'endpoint-token', verification_token_expires = ?
+            WHERE id = ?
+        """, (expires, prospect_id))
+        test_db.commit()
+
+        with _db_patch():
+            from apps.investor_portal.api.routes.public import verify_prospect
+            import asyncio
+
+            mock_bg = MagicMock()
+            result = asyncio.run(verify_prospect("endpoint-token", mock_bg))
+
+            assert result.verified is True
+            assert "verified" in result.message.lower()
+
+            # Should trigger confirmation + admin notification emails
+            assert mock_bg.add_task.call_count == 2
+
+    def test_verify_endpoint_invalid_token(self, test_db):
+        """Invalid token returns 400."""
+        with _db_patch():
+            from apps.investor_portal.api.routes.public import verify_prospect
+            from fastapi import HTTPException
+            import asyncio
+
+            mock_bg = MagicMock()
+
+            with pytest.raises(HTTPException) as exc_info:
+                asyncio.run(verify_prospect("nonexistent-token-value", mock_bg))
+
+            assert exc_info.value.status_code == 400
+
+    def test_verify_endpoint_short_token_rejected(self, test_db):
+        """Token shorter than 10 chars returns 400."""
+        with _db_patch():
+            from apps.investor_portal.api.routes.public import verify_prospect
+            from fastapi import HTTPException
+            import asyncio
+
+            mock_bg = MagicMock()
+
+            with pytest.raises(HTTPException) as exc_info:
+                asyncio.run(verify_prospect("short", mock_bg))
+
+            assert exc_info.value.status_code == 400

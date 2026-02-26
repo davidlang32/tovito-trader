@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   TrendingUp, ArrowRight, BarChart3, PieChart, Zap, Lock,
-  Shield, Clock, Users, CalendarDays, Target, LineChart,
+  Trophy, Clock, Users, CalendarDays, Target, LineChart,
   CheckCircle2, Loader2, Send, Phone, Mail, MessageSquare,
   ChevronDown
 } from 'lucide-react';
@@ -94,14 +94,14 @@ const HeroSection = () => (
       <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight mb-6">
         Professional Fund Management,{' '}
         <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-400">
-          Personalized for You
+          Built for Growth
         </span>
       </h1>
 
       <p className="text-slate-400 text-base sm:text-lg max-w-2xl mx-auto mb-10 leading-relaxed">
-        Join a select group of investors benefiting from active day trading strategies.
-        Track your portfolio in real-time with daily NAV pricing,
-        professional-grade analytics, and full transparency.
+        Join a select group of investors benefiting from active swing trading
+        and momentum-based strategies. Track your portfolio in real-time with
+        daily NAV pricing, professional-grade analytics, and full transparency.
       </p>
 
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -314,9 +314,9 @@ const FeaturesSection = () => {
       bg: 'bg-amber-500/10',
     },
     {
-      icon: Shield,
-      title: 'Tax-Efficient Structure',
-      description: 'Pass-through tax entity with quarterly settlement. No surprise withholdings on withdrawals.',
+      icon: Trophy,
+      title: '2027 USIC Competitor',
+      description: 'Our fund manager is preparing to compete in the 2027 United States Investing Championship, demonstrating commitment to performance and accountability.',
       color: 'text-cyan-400',
       bg: 'bg-cyan-500/10',
     },
@@ -420,12 +420,13 @@ const InquiryFormSection = () => {
         {submitted ? (
           <div className="bg-slate-800/50 border border-emerald-500/30 rounded-2xl p-10 text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500/10 rounded-full mb-5">
-              <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+              <Mail className="w-8 h-8 text-emerald-400" />
             </div>
-            <h3 className="text-2xl font-bold text-white mb-3">Thank You!</h3>
+            <h3 className="text-2xl font-bold text-white mb-3">Check Your Email</h3>
             <p className="text-slate-400 text-base max-w-md mx-auto">
-              We've received your inquiry. A member of our team will be in touch shortly
-              to share more about the fund and answer any questions you may have.
+              We've sent a verification link to your email address.
+              Please click the link to confirm your email, and a member
+              of our team will be in touch shortly.
             </p>
           </div>
         ) : (

@@ -258,6 +258,14 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
     - **CLI script**: New `scripts/prospects/grant_prospect_access.py` with interactive mode (shows prospect table, prompts for ID) and non-interactive mode (`--prospect-id`, `--days` flags).
     - **FundPreviewPage.jsx**: New React page at `/fund-preview?token=XXX`. Dark theme (bg-slate-950, emerald accents) matching landing page. Sections: hero with since-inception badge, stats bar, monthly returns table (color-coded), plan allocation cards (3 plans with allocation bars), benchmark comparison cards (fund vs SPY/QQQ), CTA section, footer with legal disclaimer. Error states for invalid/expired tokens and network errors.
     - **Security design**: Tokens are cryptographically random (`secrets.token_urlsafe(36)`). Access tracking (count + last_accessed_at) on every validation. Database enforces token uniqueness. No dollar amounts or NAV prices ever exposed to prospects.
+18. **Landing Page Content + Prospect Email Verification** (Phase 15) — Content corrections, feature card update, and email verification for prospect inquiries. 753 tests.
+    - **Hero text fix**: "Personalized for You" changed to "Built for Growth" (fund is pooled, not personalized). "Day trading" changed to "swing trading and momentum-based strategies" (accurate to fund strategy).
+    - **Feature card swap**: Replaced "Tax-Efficient Structure" (Shield icon) with "2027 USIC Competitor" (Trophy icon) — fund manager preparing to compete in the 2027 United States Investing Championship.
+    - **Prospect email verification**: Full email verification flow before admin notification. Prospect submits inquiry form -> verification email sent with `secrets.token_urlsafe(32)` token (24h expiry) -> prospect clicks link -> `GET /public/verify-prospect?token=XXX` marks `email_verified=1` -> confirmation email to prospect + admin notification sent only after verification. Unverified duplicate submissions resend the verification email.
+    - **Database changes**: Added `email_verified` (INTEGER DEFAULT 0), `verification_token` (TEXT), `verification_token_expires` (TIMESTAMP) columns to `prospects` table. Migration: `scripts/setup/migrate_add_prospect_verification.py`. Also added as idempotent startup migration in `main.py`.
+    - **New database functions**: `store_prospect_verification_token()`, `verify_prospect_email()`. Modified `create_prospect()` to return `email_verified` status and `prospect_id` for duplicates.
+    - **VerifyProspectPage.jsx**: New React page at `/verify-prospect?token=XXX`. Dark emerald theme. States: loading, success (green checkmark), error (invalid/expired link), network error. Links back to landing page.
+    - **Inquiry form UX**: Success message changed from "Thank You!" to "Check Your Email" with Mail icon and verification instructions.
 
 ## Production Deployment (Launched Feb 2026)
 
@@ -506,6 +514,7 @@ python scripts/setup/migrate_add_benchmarks.py      # Benchmark prices cache tab
 python scripts/setup/migrate_add_plan_performance.py            # Plan daily performance table
 python scripts/setup/migrate_add_plan_performance.py --backfill # Backfill from position snapshots
 python scripts/setup/migrate_add_prospect_access.py             # Prospect access tokens table
+python scripts/setup/migrate_add_prospect_verification.py      # Prospect email verification columns
 python scripts/setup/backfill_fund_flow_requests.py --dry-run  # Backfill historical FFR records
 
 # Grant prospect access (gated fund preview page)
@@ -629,7 +638,7 @@ TIMEZONE=America/New_York
 
 ## Testing
 
-- Tests are in `tests/` using pytest (~741 tests, all passing)
+- Tests are in `tests/` using pytest (~753 tests, all passing)
 - Test database setup: `scripts/setup/setup_test_database.py`
 - Test fixtures in `tests/conftest.py` — creates full schema including email_logs, daily_reconciliation, holdings_snapshots, position_snapshots, brokerage_transactions_raw, fund_flow_requests, investor_profiles, referrals, prospects, prospect_communications, plan_daily_performance, prospect_access_tokens
 - **Always run tests against a test database, never production**

@@ -11,8 +11,10 @@ no individual investor data.
 """
 
 import os
+import secrets
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
 from typing import List, Optional
@@ -27,6 +29,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from ..models.database import (
     get_teaser_stats,
     create_prospect,
+    store_prospect_verification_token,
+    verify_prospect_email,
     validate_prospect_token,
     get_prospect_performance_data,
 )
@@ -71,6 +75,7 @@ class InquiryResponse(BaseModel):
 _inquiry_rate_limit: dict = defaultdict(list)
 _RATE_LIMIT_MAX = 5        # Max inquiries per IP
 _RATE_LIMIT_WINDOW = 3600  # Per hour (seconds)
+_VERIFICATION_TOKEN_HOURS = 24  # Verification link expiry
 
 
 def _check_rate_limit(ip: str) -> bool:
@@ -98,17 +103,55 @@ def _check_rate_limit(ip: str) -> bool:
 # Email Functions (Background Tasks)
 # ============================================================
 
-def send_prospect_confirmation_email(name: str, email: str):
-    """Send confirmation email to prospect (runs in background)."""
+def send_prospect_verification_email(name: str, email: str, token: str):
+    """Send email verification link to prospect (runs in background)."""
     try:
         from src.automation.email_service import send_email
 
-        subject = "Tovito Trader - We Received Your Inquiry"
+        verify_url = f"{settings.PORTAL_BASE_URL}/verify-prospect?token={token}"
+
+        subject = "Tovito Trader - Verify Your Email"
         message = f"""Hello {name},
 
 Thank you for your interest in Tovito Trader.
 
-We have received your inquiry and a member of our team will be in touch shortly to discuss how our fund can help you achieve your investment goals.
+Please click the link below to verify your email address:
+
+{verify_url}
+
+This link expires in 24 hours.
+
+Once verified, a member of our team will reach out to discuss how our fund can help you achieve your investment goals.
+
+Best regards,
+Tovito Trader
+"""
+
+        send_email(
+            to_email=email,
+            subject=subject,
+            message=message,
+            email_type='ProspectVerification'
+        )
+
+    except Exception as e:
+        try:
+            print(f"[WARN] Failed to send prospect verification email: {e}")
+        except UnicodeEncodeError:
+            print(f"[WARN] Failed to send prospect verification email: {ascii(str(e))}")
+
+
+def send_prospect_verified_confirmation(name: str, email: str):
+    """Send confirmation to prospect after email verification (runs in background)."""
+    try:
+        from src.automation.email_service import send_email
+
+        subject = "Tovito Trader - Email Verified"
+        message = f"""Hello {name},
+
+Thank you for verifying your email address.
+
+A member of our team will be in touch shortly to discuss how Tovito Trader can help you achieve your investment goals.
 
 In the meantime, if you have any questions, feel free to reply to this email.
 
@@ -125,9 +168,9 @@ Tovito Trader
 
     except Exception as e:
         try:
-            print(f"[WARN] Failed to send prospect confirmation email: {e}")
+            print(f"[WARN] Failed to send prospect verified confirmation: {e}")
         except UnicodeEncodeError:
-            print(f"[WARN] Failed to send prospect confirmation email: {ascii(str(e))}")
+            print(f"[WARN] Failed to send prospect verified confirmation: {ascii(str(e))}")
 
 
 def send_admin_notification_email(name: str, email: str, phone: Optional[str], message: Optional[str]):
@@ -210,8 +253,10 @@ async def submit_inquiry(
 ):
     """Submit a prospect inquiry from the landing page.
 
-    Returns the same success message for both new and duplicate
-    emails to prevent email enumeration.
+    Generates a verification token and sends a verification email.
+    Admin notification is deferred until after the prospect verifies
+    their email address. Returns the same success message for both
+    new and duplicate emails to prevent email enumeration.
     """
     # Rate limiting
     client_ip = request.client.host if request.client else "unknown"
@@ -230,25 +275,88 @@ async def submit_inquiry(
         source='landing_page',
     )
 
-    # Send emails in background (only for new prospects, not duplicates)
+    # Generate verification token and send verification email
+    # For new prospects: always send verification email
+    # For duplicates: resend verification if not yet verified
+    should_send_verification = False
+
     if not result["is_duplicate"]:
-        background_tasks.add_task(
-            send_prospect_confirmation_email,
-            inquiry.name,
-            inquiry.email,
+        should_send_verification = True
+    elif not result.get("email_verified"):
+        should_send_verification = True
+
+    if should_send_verification and result["prospect_id"]:
+        token = secrets.token_urlsafe(32)
+        expires = datetime.utcnow() + timedelta(hours=_VERIFICATION_TOKEN_HOURS)
+        store_prospect_verification_token(
+            prospect_id=result["prospect_id"],
+            token=token,
+            expires_at=expires.isoformat(),
         )
         background_tasks.add_task(
-            send_admin_notification_email,
+            send_prospect_verification_email,
             inquiry.name,
             inquiry.email,
-            inquiry.phone,
-            inquiry.message,
+            token,
         )
 
     # Same response regardless of duplicate status (email enumeration safe)
     return InquiryResponse(
-        message="Thank you for your interest! A member of our team will be in touch shortly.",
+        message="Thank you for your interest! Please check your email to verify your address.",
         success=True,
+    )
+
+
+# ============================================================
+# Prospect Email Verification
+# ============================================================
+
+class VerifyProspectResponse(BaseModel):
+    """Prospect email verification result."""
+    verified: bool
+    message: str
+
+
+@router.get("/verify-prospect", response_model=VerifyProspectResponse)
+async def verify_prospect(
+    token: str,
+    background_tasks: BackgroundTasks,
+):
+    """Verify a prospect's email address using the token from the verification link.
+
+    On successful verification:
+    - Marks prospect email_verified=1
+    - Sends confirmation email to prospect
+    - Sends admin notification email
+    """
+    if not token or len(token) < 10:
+        raise HTTPException(status_code=400, detail="Invalid verification link.")
+
+    result = verify_prospect_email(token)
+
+    if result is None:
+        raise HTTPException(
+            status_code=400,
+            detail="This verification link is invalid or has expired. Please submit a new inquiry."
+        )
+
+    # Send post-verification emails in background
+    background_tasks.add_task(
+        send_prospect_verified_confirmation,
+        result["name"],
+        result["email"],
+    )
+    background_tasks.add_task(
+        send_admin_notification_email,
+        result["name"],
+        result["email"],
+        result.get("phone"),
+        result.get("notes"),
+    )
+
+    return VerifyProspectResponse(
+        verified=True,
+        message="Your email has been verified. A member of our team will be in touch shortly."
     )
 
 

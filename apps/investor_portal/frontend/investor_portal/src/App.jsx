@@ -11,6 +11,7 @@ import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
 import TutorialsPage from './pages/TutorialsPage';
 import FundPreviewPage from './pages/FundPreviewPage';
+import VerifyProspectPage from './pages/VerifyProspectPage';
 import {
   LoginPage,
   AccountSetupPage,
@@ -148,6 +149,8 @@ const App = () => {
 
           {/* Prospect fund preview — token-gated, no auth required */}
           <Route path="/fund-preview" element={<FundPreviewPage />} />
+          {/* Prospect email verification — no auth required */}
+          <Route path="/verify-prospect" element={<VerifyProspectPage />} />
 
           {/* Auth pages — no sidebar, redirect if already logged in */}
           <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />

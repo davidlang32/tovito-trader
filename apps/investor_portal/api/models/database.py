@@ -839,14 +839,120 @@ def create_prospect(
         }
 
     except sqlite3.IntegrityError:
-        # Duplicate email — return success-like response (email enumeration safe)
+        # Duplicate email — look up existing prospect for verification status
+        cursor.execute("""
+            SELECT id, email_verified FROM prospects WHERE email = ?
+        """, (email,))
+        existing = cursor.fetchone()
         return {
             "success": True,
-            "prospect_id": None,
+            "prospect_id": existing["id"] if existing else None,
             "is_duplicate": True,
+            "email_verified": existing["email_verified"] if existing else 0,
             "message": "Inquiry received successfully.",
         }
 
+    finally:
+        conn.close()
+
+
+# ============================================================
+# Prospect Email Verification
+# ============================================================
+
+def store_prospect_verification_token(
+    prospect_id: int, token: str, expires_at: str
+) -> bool:
+    """Store a verification token for a prospect.
+
+    Args:
+        prospect_id: ID of the prospect
+        token: URL-safe verification token
+        expires_at: ISO timestamp when the token expires
+
+    Returns:
+        True if stored successfully
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE prospects
+            SET verification_token = ?,
+                verification_token_expires = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+        """, (token, expires_at, prospect_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def verify_prospect_email(token: str) -> Optional[Dict]:
+    """Verify a prospect's email using their verification token.
+
+    Validates the token, checks expiration, marks email_verified=1,
+    and clears the token. Returns prospect info if valid.
+
+    Args:
+        token: The verification token from the URL
+
+    Returns:
+        Dict with prospect info (id, name, email, phone, notes) if valid.
+        None if token is invalid, expired, or already used.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, name, email, phone, notes,
+                   verification_token_expires, email_verified
+            FROM prospects
+            WHERE verification_token = ?
+        """, (token,))
+
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        prospect_id = row["id"]
+        name = row["name"]
+        email = row["email"]
+        phone = row["phone"]
+        notes = row["notes"]
+        expires_str = row["verification_token_expires"]
+        already_verified = row["email_verified"]
+
+        # Already verified — idempotent success
+        if already_verified:
+            return {
+                "id": prospect_id, "name": name, "email": email,
+                "phone": phone, "notes": notes,
+            }
+
+        # Check expiration
+        if expires_str:
+            expires = datetime.fromisoformat(expires_str)
+            if datetime.utcnow() > expires:
+                return None
+
+        # Mark verified and clear token
+        cursor.execute("""
+            UPDATE prospects
+            SET email_verified = 1,
+                verification_token = NULL,
+                verification_token_expires = NULL,
+                updated_at = datetime('now')
+            WHERE id = ?
+        """, (prospect_id,))
+        conn.commit()
+
+        return {
+            "id": prospect_id, "name": name, "email": email,
+            "phone": phone, "notes": notes,
+        }
     finally:
         conn.close()
 
