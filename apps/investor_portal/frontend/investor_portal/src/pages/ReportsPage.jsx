@@ -101,16 +101,16 @@ const ReportsPage = ({ onBack }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
+      <header className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center h-16 gap-4">
-            <button onClick={handleBack} className="p-2 hover:bg-gray-100 rounded-lg">
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+            <button onClick={handleBack} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg">
+              <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-slate-400" />
             </button>
             <div className="flex items-center gap-2">
               <FileText className="w-5 h-5 text-blue-600" />
-              <h1 className="font-bold text-gray-900">Generate Reports</h1>
+              <h1 className="font-bold text-gray-900 dark:text-slate-100">Generate Reports</h1>
             </div>
           </div>
         </div>
@@ -129,7 +129,7 @@ const ReportsPage = ({ onBack }) => {
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
                 reportType === key
                   ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                  : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700/50'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -138,15 +138,15 @@ const ReportsPage = ({ onBack }) => {
           ))}
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+        <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
           {reportType === 'monthly' && (
             <div className="flex gap-4 items-end">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Month</label>
                 <select
                   value={month}
                   onChange={e => setMonth(Number(e.target.value))}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="border border-gray-300 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg px-3 py-2 text-sm"
                 >
                   {MONTHS.map((m, i) => (
                     <option key={i} value={i + 1}>{m}</option>
@@ -154,11 +154,11 @@ const ReportsPage = ({ onBack }) => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Year</label>
                 <select
                   value={year}
                   onChange={e => setYear(Number(e.target.value))}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="border border-gray-300 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg px-3 py-2 text-sm"
                 >
                   <option value={2026}>2026</option>
                   <option value={2027}>2027</option>
@@ -178,21 +178,21 @@ const ReportsPage = ({ onBack }) => {
           {reportType === 'custom' && (
             <div className="flex gap-4 items-end">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Start Date</label>
                 <input
                   type="date"
                   value={startDate}
                   onChange={e => setStartDate(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="border border-gray-300 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">End Date</label>
                 <input
                   type="date"
                   value={endDate}
                   onChange={e => setEndDate(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="border border-gray-300 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
               <button
@@ -209,11 +209,11 @@ const ReportsPage = ({ onBack }) => {
           {reportType === 'ytd' && (
             <div className="flex gap-4 items-end">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Year</label>
                 <select
                   value={year}
                   onChange={e => setYear(Number(e.target.value))}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="border border-gray-300 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg px-3 py-2 text-sm"
                 >
                   <option value={2026}>2026</option>
                   <option value={2027}>2027</option>
@@ -232,16 +232,16 @@ const ReportsPage = ({ onBack }) => {
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-red-700 text-sm">
+          <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4 text-red-700 dark:text-red-300 text-sm">
             {error}
           </div>
         )}
 
         {jobStatus && (
           <div className={`rounded-lg p-4 mb-4 text-sm ${
-            jobStatus.status === 'completed' ? 'bg-green-50 border border-green-200 text-green-700'
-            : jobStatus.status === 'failed' ? 'bg-red-50 border border-red-200 text-red-700'
-            : 'bg-blue-50 border border-blue-200 text-blue-700'
+            jobStatus.status === 'completed' ? 'bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300'
+            : jobStatus.status === 'failed' ? 'bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
+            : 'bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
           }`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

@@ -9,6 +9,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceDot
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { useApi } from '../hooks/useApi';
 import { API_BASE_URL } from '../config';
 
@@ -35,29 +36,29 @@ const getGreeting = () => {
 // ============================================================
 
 const StatCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, accentColor }) => (
-  <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-5 relative overflow-hidden`}>
+  <div className={`bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-5 relative overflow-hidden`}>
     <div className={`absolute left-0 top-0 bottom-0 w-1 ${
-      accentColor || (trend === 'up' ? 'bg-emerald-400' : trend === 'down' ? 'bg-red-400' : 'bg-gray-200')
+      accentColor || (trend === 'up' ? 'bg-emerald-400' : trend === 'down' ? 'bg-red-400' : 'bg-gray-200 dark:bg-slate-700')
     }`} />
     <div className="flex items-start justify-between">
       <div className="min-w-0">
-        <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">{title}</p>
-        <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
-        {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
+        <p className="text-xs text-gray-500 dark:text-slate-400 font-medium uppercase tracking-wider">{title}</p>
+        <p className="text-2xl font-bold text-gray-900 dark:text-slate-100 mt-1">{value}</p>
+        {subtitle && <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
       </div>
       <div className={`p-2.5 rounded-lg flex-shrink-0 ${
-        trend === 'up' ? 'bg-emerald-50' : trend === 'down' ? 'bg-red-50' : 'bg-gray-50'
+        trend === 'up' ? 'bg-emerald-50 dark:bg-emerald-900/30' : trend === 'down' ? 'bg-red-50 dark:bg-red-900/30' : 'bg-gray-50 dark:bg-slate-900/50'
       }`}>
         <Icon className={`w-5 h-5 ${
-          trend === 'up' ? 'text-emerald-600' : trend === 'down' ? 'text-red-600' : 'text-gray-400'
+          trend === 'up' ? 'text-emerald-600 dark:text-emerald-400' : trend === 'down' ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-slate-500'
         }`} />
       </div>
     </div>
     {trendValue !== undefined && (
-      <div className={`flex items-center gap-1 mt-2.5 text-sm ${trendValue >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+      <div className={`flex items-center gap-1 mt-2.5 text-sm ${trendValue >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
         {trendValue >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
         <span className="font-medium">{trendValue >= 0 ? '+' : ''}{trendValue.toFixed(2)}%</span>
-        <span className="text-gray-400 ml-1">total return</span>
+        <span className="text-gray-400 dark:text-slate-500 ml-1">total return</span>
       </div>
     )}
   </div>
@@ -79,23 +80,23 @@ const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-700 mb-1">{d.date}</p>
+    <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg px-3 py-2 text-xs">
+      <p className="font-semibold text-gray-700 dark:text-slate-300 mb-1">{d.date}</p>
       <div className="flex justify-between gap-4">
-        <span className="text-gray-500">Value</span>
-        <span className="font-semibold text-gray-900">{formatCurrency(d.portfolio_value)}</span>
+        <span className="text-gray-500 dark:text-slate-400">Value</span>
+        <span className="font-semibold text-gray-900 dark:text-slate-100">{formatCurrency(d.portfolio_value)}</span>
       </div>
       {d.daily_change_pct != null && (
         <div className="flex justify-between gap-4">
-          <span className="text-gray-500">Daily</span>
-          <span className={`font-medium ${d.daily_change_pct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+          <span className="text-gray-500 dark:text-slate-400">Daily</span>
+          <span className={`font-medium ${d.daily_change_pct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
             {formatPct(d.daily_change_pct)}
           </span>
         </div>
       )}
       {d.transaction_type && (
-        <div className="flex justify-between gap-4 mt-1 pt-1 border-t border-gray-100">
-          <span className={d.transaction_type === 'Contribution' || d.transaction_type === 'Initial' ? 'text-emerald-600' : 'text-red-600'}>
+        <div className="flex justify-between gap-4 mt-1 pt-1 border-t border-gray-100 dark:border-slate-700/50">
+          <span className={d.transaction_type === 'Contribution' || d.transaction_type === 'Initial' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>
             {d.transaction_type === 'Initial' ? 'Initial Deposit' : d.transaction_type}
           </span>
           <span className="font-medium">{formatCurrency(d.transaction_amount)}</span>
@@ -107,10 +108,14 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 const PortfolioValueChart = () => {
   const { getAuthHeaders } = useAuth();
+  const { darkMode } = useTheme();
   const [range, setRange] = useState(90);
   const [chartData, setChartData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+
+  const axisColor = darkMode ? '#94a3b8' : '#9ca3af';
+  const gridColor = darkMode ? '#334155' : '#e5e7eb';
 
   // Compute actual days parameter
   const daysParam = useMemo(() => {
@@ -159,11 +164,11 @@ const PortfolioValueChart = () => {
   }, [chartData]);
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">Your Portfolio Value</h3>
-          <p className="text-sm text-gray-500">Account value over time</p>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Your Portfolio Value</h3>
+          <p className="text-sm text-gray-500 dark:text-slate-400">Account value over time</p>
         </div>
         <div className="flex gap-1">
           {RANGE_OPTIONS.map(opt => (
@@ -173,7 +178,7 @@ const PortfolioValueChart = () => {
               className={`px-3 py-1 rounded text-xs font-medium transition ${
                 range === opt.value
                   ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600'
               }`}
             >
               {opt.label}
@@ -187,7 +192,7 @@ const PortfolioValueChart = () => {
           <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
         </div>
       ) : error || !chartData || chartData.length < 2 ? (
-        <div className="h-[300px] flex flex-col items-center justify-center text-gray-400">
+        <div className="h-[300px] flex flex-col items-center justify-center text-gray-400 dark:text-slate-500">
           <AlertCircle className="w-8 h-8 mb-2" />
           <p className="text-sm">{error ? 'Chart unavailable' : 'Not enough data for this range'}</p>
         </div>
@@ -202,9 +207,9 @@ const PortfolioValueChart = () => {
             </defs>
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 11, fill: '#9ca3af' }}
+              tick={{ fontSize: 11, fill: axisColor }}
               tickLine={false}
-              axisLine={{ stroke: '#e5e7eb' }}
+              axisLine={{ stroke: gridColor }}
               tickFormatter={(v) => {
                 const d = new Date(v + 'T00:00:00');
                 return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -212,7 +217,7 @@ const PortfolioValueChart = () => {
               minTickGap={40}
             />
             <YAxis
-              tick={{ fontSize: 11, fill: '#9ca3af' }}
+              tick={{ fontSize: 11, fill: axisColor }}
               tickLine={false}
               axisLine={false}
               tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
@@ -227,7 +232,7 @@ const PortfolioValueChart = () => {
               strokeWidth={2}
               fill="url(#portfolioGradient)"
               dot={false}
-              activeDot={{ r: 4, stroke: '#10b981', strokeWidth: 2, fill: 'white' }}
+              activeDot={{ r: 4, stroke: '#10b981', strokeWidth: 2, fill: darkMode ? '#1e293b' : 'white' }}
             />
             {/* Transaction markers */}
             {transactions.map((tx, i) => (
@@ -237,7 +242,7 @@ const PortfolioValueChart = () => {
                 y={tx.portfolio_value}
                 r={5}
                 fill={tx.transaction_type === 'Contribution' || tx.transaction_type === 'Initial' ? '#10b981' : '#ef4444'}
-                stroke="white"
+                stroke={darkMode ? '#1e293b' : 'white'}
                 strokeWidth={2}
               />
             ))}
@@ -267,7 +272,7 @@ const PerformancePills = () => {
   if (monthReturn != null) {
     pills.push({
       text: `${monthReturn >= 0 ? 'Up' : 'Down'} ${Math.abs(monthReturn).toFixed(1)}% this month`,
-      color: monthReturn >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200',
+      color: monthReturn >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800',
     });
   }
 
@@ -275,7 +280,7 @@ const PerformancePills = () => {
   if (sinceInception != null) {
     pills.push({
       text: `${sinceInception >= 0 ? '+' : ''}${sinceInception.toFixed(1)}% since inception`,
-      color: sinceInception >= 0 ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200',
+      color: sinceInception >= 0 ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800',
     });
   }
 
@@ -286,7 +291,7 @@ const PerformancePills = () => {
     const days = Math.ceil((today - inception) / (1000 * 60 * 60 * 24));
     pills.push({
       text: `${days} days since launch`,
-      color: 'bg-gray-50 text-gray-600 border-gray-200',
+      color: 'bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-slate-400 border-gray-200 dark:border-slate-700',
     });
   }
 
@@ -312,24 +317,24 @@ const TransactionRow = ({ transaction }) => {
   const isMoneyIn = transaction.type === 'Contribution' || transaction.type === 'Initial';
   const displayType = transaction.type === 'Initial' ? 'Initial Deposit' : transaction.type;
   return (
-    <div className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+    <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-slate-700/50 last:border-0">
       <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg ${isMoneyIn ? 'bg-emerald-50' : 'bg-red-50'}`}>
+        <div className={`p-2 rounded-lg ${isMoneyIn ? 'bg-emerald-50 dark:bg-emerald-900/30' : 'bg-red-50 dark:bg-red-900/30'}`}>
           {isMoneyIn ?
-            <ArrowDownRight className="w-4 h-4 text-emerald-600" /> :
-            <ArrowUpRight className="w-4 h-4 text-red-600" />
+            <ArrowDownRight className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> :
+            <ArrowUpRight className="w-4 h-4 text-red-600 dark:text-red-400" />
           }
         </div>
         <div>
-          <p className="font-medium text-gray-900 text-sm">{displayType}</p>
-          <p className="text-xs text-gray-500">{transaction.date}</p>
+          <p className="font-medium text-gray-900 dark:text-slate-100 text-sm">{displayType}</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400">{transaction.date}</p>
         </div>
       </div>
       <div className="text-right">
-        <p className={`font-semibold text-sm ${isMoneyIn ? 'text-emerald-600' : 'text-red-600'}`}>
+        <p className={`font-semibold text-sm ${isMoneyIn ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
           {isMoneyIn ? '+' : '-'}${Math.abs(transaction.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
         </p>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-slate-400">
           {transaction.shares.toFixed(4)} shares {isMoneyIn ? 'received' : 'redeemed'}
         </p>
       </div>
@@ -341,12 +346,12 @@ const RecentActivity = () => {
   const { data: transactions } = useApi('/investor/transactions?limit=5');
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Recent Activity</h3>
         <Link
           to="/activity"
-          className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
+          className="text-sm text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-medium flex items-center gap-1"
         >
           View All
           <ChevronRight className="w-4 h-4" />
@@ -354,27 +359,27 @@ const RecentActivity = () => {
       </div>
 
       {transactions?.transactions?.length > 0 ? (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-slate-700/50">
           {transactions.transactions.map((tx, i) => (
             <TransactionRow key={i} transaction={tx} />
           ))}
         </div>
       ) : (
-        <div className="text-center py-8 text-gray-500">
-          <Clock className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+        <div className="text-center py-8 text-gray-500 dark:text-slate-400">
+          <Clock className="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-slate-600" />
           <p className="text-sm">No transactions yet</p>
         </div>
       )}
 
       {transactions && (
-        <div className="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500">
+        <div className="mt-4 pt-3 border-t border-gray-100 dark:border-slate-700/50 text-xs text-gray-500 dark:text-slate-400">
           <div className="flex justify-between">
             <span>Total Contributions</span>
-            <span className="text-emerald-600 font-semibold">{formatCurrency(transactions.total_contributions)}</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{formatCurrency(transactions.total_contributions)}</span>
           </div>
           <div className="flex justify-between mt-1">
             <span>Total Withdrawals</span>
-            <span className="text-red-600 font-semibold">{formatCurrency(transactions.total_withdrawals)}</span>
+            <span className="text-red-600 dark:text-red-400 font-semibold">{formatCurrency(transactions.total_withdrawals)}</span>
           </div>
         </div>
       )}
@@ -388,33 +393,33 @@ const RecentActivity = () => {
 
 const AccountSummary = ({ position, performance }) => {
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Summary</h3>
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Account Summary</h3>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Net Investment</p>
-          <p className="text-lg font-bold text-gray-900 mt-0.5">{formatCurrency(position?.net_investment)}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider font-semibold">Net Investment</p>
+          <p className="text-lg font-bold text-gray-900 dark:text-slate-100 mt-0.5">{formatCurrency(position?.net_investment)}</p>
         </div>
         <div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Initial Capital</p>
-          <p className="text-lg font-bold text-gray-900 mt-0.5">{formatCurrency(position?.initial_capital)}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider font-semibold">Initial Capital</p>
+          <p className="text-lg font-bold text-gray-900 dark:text-slate-100 mt-0.5">{formatCurrency(position?.initial_capital)}</p>
         </div>
         <div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Current Shares</p>
-          <p className="text-lg font-bold text-gray-900 mt-0.5">{position?.current_shares?.toLocaleString('en-US', { maximumFractionDigits: 4 }) || '--'}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider font-semibold">Current Shares</p>
+          <p className="text-lg font-bold text-gray-900 dark:text-slate-100 mt-0.5">{position?.current_shares?.toLocaleString('en-US', { maximumFractionDigits: 4 }) || '--'}</p>
         </div>
         <div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Avg Cost/Share</p>
-          <p className="text-lg font-bold text-gray-900 mt-0.5">${position?.avg_cost_per_share?.toFixed(4) || '--'}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider font-semibold">Avg Cost/Share</p>
+          <p className="text-lg font-bold text-gray-900 dark:text-slate-100 mt-0.5">${position?.avg_cost_per_share?.toFixed(4) || '--'}</p>
         </div>
         <div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Fund Size</p>
-          <p className="text-lg font-bold text-gray-900 mt-0.5">{formatCurrency(performance?.total_portfolio_value)}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider font-semibold">Fund Size</p>
+          <p className="text-lg font-bold text-gray-900 dark:text-slate-100 mt-0.5">{formatCurrency(performance?.total_portfolio_value)}</p>
         </div>
         <div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Inception Date</p>
-          <p className="text-lg font-bold text-gray-900 mt-0.5">{performance?.inception_date || '--'}</p>
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wider font-semibold">Inception Date</p>
+          <p className="text-lg font-bold text-gray-900 dark:text-slate-100 mt-0.5">{performance?.inception_date || '--'}</p>
         </div>
       </div>
     </div>
@@ -437,8 +442,8 @@ const DashboardPage = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-20 lg:pb-8">
       {/* Welcome Banner */}
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">{getGreeting()}, {firstName}</h2>
-        <p className="text-gray-500 text-sm">{"Here's your portfolio overview as of "}{position?.as_of_date || 'today'}</p>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{getGreeting()}, {firstName}</h2>
+        <p className="text-gray-500 dark:text-slate-400 text-sm">{"Here's your portfolio overview as of "}{position?.as_of_date || 'today'}</p>
       </div>
 
       {/* Stats Grid */}

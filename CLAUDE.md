@@ -92,7 +92,7 @@ C:\tovito-trader\
 
 ## Database Schema (Key Tables)
 
-The primary database is `data/tovito.db` using SQLite. Schema defined in `src/database/schema_v2.py` (raw SQL) and `src/database/models.py` (SQLAlchemy ORM). Schema version: **2.3.0**.
+The primary database is `data/tovito.db` using SQLite. Schema defined in `src/database/schema_v2.py` (raw SQL) and `src/database/models.py` (SQLAlchemy ORM). Schema version: **2.4.0**.
 
 ### Core Financial Tables
 - **investors** — investor_id (TEXT PK, format: '20260101-01A'), name, email, current_shares, net_investment, status, join_date
@@ -131,7 +131,8 @@ The primary database is `data/tovito.db` using SQLite. Schema defined in `src/da
 - **system_logs** — log_id, timestamp, log_type (INFO/WARNING/ERROR/SUCCESS), category, message, details
 - **email_logs** — email_id, sent_at, recipient, subject, email_type (MonthlyReport/Alert/General), status (Sent/Failed). Populated by EmailService on every send.
 - **daily_reconciliation** — date (PK), tradier_balance, calculated_portfolio_value, difference, total_shares, nav_per_share, status (matched/mismatch), notes. Populated daily by NAV pipeline Step 5.
-- **audit_log** — log_id, timestamp, table_name, record_id, action, old_values (JSON), new_values (JSON)
+- **audit_log** — log_id, timestamp, table_name, record_id, action, old_values (JSON), new_values (JSON). Triggers on `investor_profiles` log INSERT/UPDATE with `[ENCRYPTED]` placeholders for PII fields.
+- **pii_access_log** — log_id (INT PK AUTOINCREMENT), timestamp (TIMESTAMP), investor_id (TEXT), field_name (TEXT), access_type (TEXT, 'read'/'write'), performed_by (TEXT, default 'system'), ip_address (TEXT), context (TEXT). Indexes on investor_id and timestamp. Logged by `log_pii_access()` in `database.py`. Migration: `scripts/setup/migrate_add_pii_audit.py`. Also created idempotently on API startup.
 
 ### Removed/Archived Tables/Columns (historical)
 - `tradier_transactions` table — dropped (was empty legacy table)
@@ -187,14 +188,14 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
 
 1. **Analytics Package** — Trade analysis, market trend detection, portfolio analysis. Will use `analytics/analytics.db`. Shared resource used by market monitor, investor portal, and trade journal.
 2. **Trade Journal** — Log trades with entry/exit analysis. Will leverage analytics package components for post-trade review and pattern recognition.
-3. **Full Dev/Test Environment** — See below.
+3. ~~**Full Dev/Test Environment**~~ — **DONE** (Phase 17). API auto-loads `config/.env.{TOVITO_ENV}`, dev launcher script, synthetic dev database.
 4. **Code Reorganization** — Some legacy scripts may still reference old paths or have duplicated logic from pre-reorganization. Ongoing cleanup needed.
 5. **Ops Dashboard in Fund Manager App** — The health check data layer (`src/monitoring/health_checks.py`) is designed UI-agnostic so it can be integrated into the CustomTkinter fund manager dashboard alongside the current Streamlit standalone version.
 6. **Investor Portal Frontend Enhancements** — Daily P&L cards, contribution/withdrawal request forms, profile management pages, referral code sharing. React Router for multi-page navigation.
 7. **Admin Portal** — Separate local-only React app (`apps/admin_portal/`) for the fund manager to view all investor data, troubleshoot what each investor sees, and manage prospects. Never deployed publicly — runs only on localhost. Option A architecture: completely separate from investor portal with its own frontend and potentially its own API routes.
-8. **PII Security Hardening (HIGH PRIORITY)** — Comprehensive security review and hardening for storing sensitive investor PII. Current state: Fernet encryption at rest for SSN, bank details, tax ID in `investor_profiles` via `src/utils/encryption.py`. Future needs: encryption key rotation strategy, field-level access logging (who accessed what PII and when), data retention policies, secure backup procedures for encrypted fields, ENCRYPTION_KEY disaster recovery plan, SOC 2 / regulatory compliance readiness assessment, network-level protections if PII is ever served via API, and penetration testing. Goal: meet the security bar that larger firms maintain for investor data — defense in depth, principle of least privilege, auditable access trails. This is a prerequisite for scaling beyond a small investor base.
+8. ~~**PII Security Hardening (HIGH PRIORITY)**~~ — **PARTIALLY DONE** (Phase 19). Completed: encryption key rotation framework (versioned ciphertext, multi-key support, `rotate_encryption_key.py`), field-level PII access logging (`pii_access_log` table + `log_pii_access()`), `investor_profiles` audit triggers, security headers middleware, startup encryption validation. Remaining: data retention policies, secure backup procedures for encrypted fields, ENCRYPTION_KEY disaster recovery plan, SOC 2 / regulatory compliance readiness assessment, network-level protections if PII is ever served via API, penetration testing.
 9. **Primary Laptop Failover** — Long-term goal to enable OPS-AUTOMATION as a warm standby for OPS-PRIMARY. Would require secure database replication strategy and runbook for failover activation. Not urgent — focus on automation split first.
-10. **Portal Dark Theme Redesign** — Extend the dark emerald gradient from the sidebar (Phase 16) into the authenticated portal page content areas (Dashboard, Performance, Portfolio, Activity, Reports, Settings). Sidebar already uses the gradient. Infrastructure in place: `ThemeContext.jsx` with `useTheme()` hook, `darkMode: 'class'` Tailwind strategy enabled, dark mode toggle in Settings. Remaining work: add `dark:` variants to all portal page components — cards (`dark:bg-slate-800/50 dark:border-slate-700/50`), text (`dark:text-slate-300`), backgrounds (`dark:bg-slate-950`), and form inputs. Goal: unified visual identity when dark mode is toggled on.
+10. ~~**Portal Dark Theme Redesign**~~ — **DONE** (Phase 18). All authenticated portal pages now have full `dark:` variant coverage.
 
 ## Recently Completed Features
 
@@ -272,6 +273,32 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
     - **Sidebar emerald gradient**: Changed sidebar background from `bg-slate-800` to `bg-gradient-to-b from-slate-900 via-emerald-900 to-slate-900` matching the landing page gradient. Updated nav item active state to `bg-emerald-500/15 text-emerald-400`, hover states to `bg-emerald-500/10`. Logo shadow updated to `shadow-emerald-500/30`. Border colors updated to `border-emerald-800/50`.
     - **Portfolio chart gap interpolation**: New `_interpolate_trading_day_gaps()` helper in `database.py`. Detects gaps >3 calendar days in `daily_nav` data and inserts linearly interpolated weekday points (Mon-Fri). Fixes the Feb 2-18 gap where the chart showed a misleading straight line. Interpolation covers both portfolio_value and nav_per_share. Applied as post-processing in `get_investor_value_history()`.
     - **New tests**: 6 tests for `_interpolate_trading_day_gaps()` covering no gaps, weekend gaps, multi-day gaps, linear value progression, edge cases, and NAV direction consistency.
+20. **Dev/Test Environment Separation** (Phase 17) — Complete environment isolation so local development never touches production data. 759 tests.
+    - **Environment-specific config loading**: Modified `apps/investor_portal/api/config.py` to read `TOVITO_ENV` (default: `development`), load `config/.env.{TOVITO_ENV}` first, fall back to root `.env`. On Railway, `TOVITO_ENV=production` and settings come from OS env vars (no config file).
+    - **Development defaults**: Rewrote `config/.env.development` with complete dev defaults — `DATABASE_PATH=data/dev_tovito.db`, dev-only JWT secret, email disabled, all Discord/monitoring/sync integrations disabled.
+    - **Rich synthetic dev database**: Enhanced `scripts/setup/setup_test_database.py` with all missing tables (prospects, prospect_communications, prospect_access_tokens, benchmark_prices, plan_daily_performance, audit_log), ~57 trading days of NAV (Jan 1 to today), benchmark prices (SPY/QQQ/BTC-USD), plan performance data, sample trades, investor profiles. Added `--reset-prospects` flag to clear prospect data without rebuilding everything.
+    - **Startup environment banner**: API now prints clear banner on startup showing environment name, database path, DB existence, and warns loudly if production database detected in non-production mode.
+    - **Dev launcher script**: New `scripts/setup/start_dev.py` — one command that sets `TOVITO_ENV=development`, auto-creates dev DB if missing, starts uvicorn with reload. Supports `--port`, `--reset-db`, `--reset-prospects` flags.
+    - **Safety design**: Default `DATABASE_PATH` changed from `data/tovito.db` to `data/dev_tovito.db` so forgetting to set `TOVITO_ENV` never touches production.
+21. **Portal Dark Theme Redesign** (Phase 18) — Full dark mode coverage for all 8 authenticated portal pages. 759 tests.
+    - **Layout.jsx**: Dark variants for page background (`dark:bg-slate-950`), mobile header, footer, and bottom nav bar (`dark:bg-slate-900 dark:border-slate-700`).
+    - **SettingsPage.jsx**: All section containers, form inputs, toggle buttons, status badges, field rows, quick links, and save messages.
+    - **ReportsPage.jsx**: Header, tab buttons, card containers, form labels/inputs, and status message boxes.
+    - **TutorialsPage.jsx**: Detail/list headers, tutorial cards, category badges, thumbnail placeholders.
+    - **DashboardPage.jsx**: StatCard, PortfolioValueChart, PerformancePills, RecentActivity, AccountSummary. **Recharts theming**: axis tick/grid colors via `darkMode` ternary (`useTheme()` hook), tooltip backgrounds.
+    - **PerformancePage.jsx**: BenchmarkChart legend, ComparisonCards, MonthlyHeatmap, RollingReturnsChart, RiskMetricCards. **TradingView chart**: theme-aware grid/text colors, `darkMode` added to `useEffect` dependency array to rebuild chart on theme toggle. **Recharts (RollingReturns)**: axis color ternaries. `RISK_METRIC_CONFIGS` icon colors updated.
+    - **PortfolioPage.jsx**: OverviewCard, AllocationDonut, AllocationByType, HoldingsTable, ConcentrationAnalysis. **SVG text theming**: `renderActiveShape` moved into component scope via `useCallback` to access `darkMode` for `fill` colors. **Donut Cell stroke**: `stroke={darkMode ? '#1e293b' : 'white'}`. `getDiversificationGrade` returns dark-variant class strings.
+    - **ActivityPage.jsx**: NewRequestForm, SummaryCards, CashFlowChart, FundFlowCard/StatusBadge, TransactionHistory, NavTimeline. **STATUS_CONFIG**: dark variants appended to color/bg/border class strings. **Recharts (BarChart)**: axis/grid/ReferenceLine colors via `darkMode` ternary. **TYPE_ICONS**: bg values include dark variants.
+    - **SectionHeader pattern**: Each page's local `SectionHeader` updated with `dark:text-slate-100` (title) and `dark:text-slate-400` (subtitle). Call sites pass dark variants in `iconBg`/`iconColor` props.
+    - **Standard palette**: Consistent mapping across all pages — `bg-white` → `dark:bg-slate-800/50`, `bg-gray-50` → `dark:bg-slate-950`, `border-gray-100` → `dark:border-slate-700/50`, `text-gray-900` → `dark:text-slate-100`, `bg-{color}-50` → `dark:bg-{color}-900/30`.
+22. **PII Security Hardening** (Phase 19) — Production-grade encryption key management, PII access audit logging, and API security hardening. 806 tests.
+    - **Versioned ciphertext + multi-key support**: Upgraded `FieldEncryptor` in `src/utils/encryption.py`. New encryptions produce `v1:<ciphertext>` prefix. Decrypt tries current key first, then each legacy key in order (supports seamless key rotation without downtime). Unversioned `gAAAAA...` ciphertext treated as v0 for backward compatibility. New `ENCRYPTION_LEGACY_KEYS` env var (comma-separated list of old Fernet keys). `is_encrypted()` recognizes both `v1:gAAAAA` and bare `gAAAAA` formats. `reset_encryptor()` function for re-initialization after env changes.
+    - **PII access audit log**: New `pii_access_log` table tracking who accessed/modified encrypted fields — investor_id, field_name, access_type ('read'/'write'), performed_by, ip_address, context. Indexes on investor_id and timestamp. New `log_pii_access()` function in `database.py` (non-fatal — wrapped in try/except). Migration: `scripts/setup/migrate_add_pii_audit.py`. Schema version bumped to 2.4.0.
+    - **Audit triggers on investor_profiles**: INSERT and UPDATE triggers write to `audit_log` table. Encrypted field values (SSN, bank details, tax ID, DOB) logged as `[ENCRYPTED]` placeholder — never plaintext or ciphertext in audit trail.
+    - **Startup encryption validation**: New `_validate_encryption()` in API startup pipeline. Tests round-trip encrypt/decrypt on boot, prints `[OK] Encryption: verified` or `[WARN] Encryption: not configured` to startup banner. Reports legacy key count if present. Non-fatal.
+    - **Security headers middleware**: Six headers added to all API responses — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Cache-Control: no-store`. Skips HSTS (Cloudflare handles TLS) and CSP (API-only, no HTML).
+    - **Key rotation script**: New `scripts/setup/rotate_encryption_key.py` — decrypts all `investor_profiles` PII fields with current key, re-encrypts with new key (v1: format), validates round-trip for every field, commits in single transaction. Supports `--dry-run`, `--new-key KEY`, `--skip-backup`. Creates database backup before starting. Prints post-rotation instructions (update ENCRYPTION_KEY, add old key to ENCRYPTION_LEGACY_KEYS).
+    - **Test suite**: New `tests/test_pii_security.py` (47 tests) covering: versioned ciphertext format, backward compatibility with unversioned tokens, multi-key decryption, key rotation end-to-end, `is_encrypted()` for both formats, PII access log writes, audit triggers, security headers on all responses, startup validation, `reset_encryptor()`.
 
 ## Production Deployment (Launched Feb 2026)
 
@@ -381,14 +408,73 @@ All development happens **locally on Windows**. The flow is one-directional:
 
 **When to mention environment:** Only specify "dev" or "prod" when discussing something environment-specific (e.g., "my password doesn't work in dev", "Railway logs show an error"). Otherwise, all work is assumed to be local development.
 
+### Environment Switching (TOVITO_ENV)
+
+The API uses `TOVITO_ENV` environment variable to select which config to load:
+
+| Environment | TOVITO_ENV | Config File | Database | How Set |
+|---|---|---|---|---|
+| **Development** (default) | `development` | `config/.env.development` | `data/dev_tovito.db` | Default when unset |
+| **Production** (Railway) | `production` | OS env vars (no file) | `/app/data/tovito.db` | Railway env var |
+| **Production** (local) | `production` | root `.env` | `data/tovito.db` | `set TOVITO_ENV=production` |
+
+**How it works:** `apps/investor_portal/api/config.py` calls `_load_env_file()` at module load time, which reads `TOVITO_ENV` (default: `development`), looks for `config/.env.{TOVITO_ENV}`, and falls back to root `.env` if the env-specific file doesn't exist. On Railway, there's no config folder — settings come from OS-level env vars.
+
+**Safety net:** The API startup banner warns if a non-dev database (`data/tovito.db`) is detected in non-production mode.
+
+### Quick Start — Local Development
+
+```powershell
+# One-command dev launcher (creates dev DB if needed, starts API):
+python scripts/setup/start_dev.py
+
+# Or manually:
+python scripts/setup/setup_test_database.py --env dev     # Create dev DB
+python -m uvicorn apps.investor_portal.api.main:app --reload --port 8000
+
+# Frontend (separate terminal):
+cd apps/investor_portal/frontend/investor_portal && npm run dev
+```
+
+**Dev launcher options:**
+```powershell
+python scripts/setup/start_dev.py                    # Start API (default port 8000)
+python scripts/setup/start_dev.py --port 8001        # Custom port
+python scripts/setup/start_dev.py --reset-db          # Rebuild dev database from scratch
+python scripts/setup/start_dev.py --reset-prospects   # Clear prospect data only
+```
+
+**Dev test accounts:**
+| Email | Password | Role |
+|---|---|---|
+| `alpha@test.com` | `TestPass123!` | Active investor (100 shares) |
+| `bravo@test.com` | `TestPass123!` | Active investor (50 shares) |
+| `charlie@test.com` | `TestPass123!` | Active investor (75 shares) |
+| `delta@test.com` | `TestPass123!` | Active investor (25 shares) |
+
+### Switching to Production (Local)
+
+When you need to run the daily NAV pipeline or production scripts locally:
+
+```powershell
+# Set production mode for the current terminal session:
+set TOVITO_ENV=production
+
+# Now uvicorn/scripts will load root .env → data/tovito.db
+python -m uvicorn apps.investor_portal.api.main:app --reload --port 8000
+
+# Reset back to development:
+set TOVITO_ENV=development
+```
+
+**Important:** Production automation scripts (`daily_nav_enhanced.py`, etc.) load root `.env` directly and do NOT use the `TOVITO_ENV` switching mechanism. This is intentional — they always target production data.
+
 ### Principles
 - **Never develop or test against production data.** Use `scripts/setup/setup_test_database.py` to create synthetic test databases.
 - **All new features must be developed in the dev environment first**, validated in test, then promoted to production.
 - **Test data must be fully synthetic** — no real investor names, emails, or financial data in test fixtures.
-- **Config-driven environment switching** — scripts should read from the appropriate .env file based on context.
-- **Goal:** Eventually support `--env dev|test|prod` flag across all scripts.
-
-Environment configs exist in `config/` (.env.development, .env.production) but full separation is still being built out.
+- **Config-driven environment switching** — the API loads from the appropriate .env file based on `TOVITO_ENV`.
+- **Dev database schema matches production** — `setup_test_database.py` creates all tables including prospects, benchmark_prices, plan_daily_performance, prospect_access_tokens, and pii_access_log.
 
 ## Automation & Regression Testing
 
@@ -472,6 +558,15 @@ This is a **professional financial tool** managing real investor money. All code
 ## Common Commands
 
 ```powershell
+# Start dev environment (one command — creates dev DB if needed)
+python scripts/setup/start_dev.py                    # Start API in dev mode
+python scripts/setup/start_dev.py --reset-db          # Rebuild dev database first
+python scripts/setup/start_dev.py --reset-prospects   # Clear prospect data only
+
+# Create/rebuild dev database manually
+python scripts/setup/setup_test_database.py --env dev
+python scripts/setup/setup_test_database.py --env dev --reset-prospects
+
 # Daily NAV update (runs automatically via Task Scheduler)
 python scripts/daily_nav_enhanced.py
 
@@ -521,7 +616,13 @@ python scripts/setup/migrate_add_plan_performance.py            # Plan daily per
 python scripts/setup/migrate_add_plan_performance.py --backfill # Backfill from position snapshots
 python scripts/setup/migrate_add_prospect_access.py             # Prospect access tokens table
 python scripts/setup/migrate_add_prospect_verification.py      # Prospect email verification columns
+python scripts/setup/migrate_add_pii_audit.py                  # PII access audit log + investor_profiles triggers
 python scripts/setup/backfill_fund_flow_requests.py --dry-run  # Backfill historical FFR records
+
+# Encryption key rotation
+python scripts/setup/rotate_encryption_key.py                  # Generate new key and rotate all PII fields
+python scripts/setup/rotate_encryption_key.py --dry-run        # Preview without writing
+python scripts/setup/rotate_encryption_key.py --new-key KEY    # Use specific new key
 
 # Grant prospect access (gated fund preview page)
 python scripts/prospects/grant_prospect_access.py               # Interactive mode
@@ -625,6 +726,8 @@ HEALTHCHECK_WATCHDOG_URL=...   # healthchecks.io ping URL (optional)
 # Encryption (for investor profile PII)
 ENCRYPTION_KEY=...             # Fernet key — generate via: python src/utils/encryption.py
                                # CRITICAL: back up separately — data unrecoverable without it
+ENCRYPTION_LEGACY_KEYS=...     # Comma-separated old Fernet keys for key rotation transition
+                               # After rotating, add old ENCRYPTION_KEY here so existing data still decrypts
 
 # Investor portal
 PORTAL_BASE_URL=http://localhost:3000  # Base URL for email links (verification, password reset)
@@ -644,11 +747,11 @@ TIMEZONE=America/New_York
 
 ## Testing
 
-- Tests are in `tests/` using pytest (~759 tests, all passing)
+- Tests are in `tests/` using pytest (~806 tests, all passing)
 - Test database setup: `scripts/setup/setup_test_database.py`
-- Test fixtures in `tests/conftest.py` — creates full schema including email_logs, daily_reconciliation, holdings_snapshots, position_snapshots, brokerage_transactions_raw, fund_flow_requests, investor_profiles, referrals, prospects, prospect_communications, plan_daily_performance, prospect_access_tokens
+- Test fixtures in `tests/conftest.py` — creates full schema including email_logs, daily_reconciliation, holdings_snapshots, position_snapshots, brokerage_transactions_raw, fund_flow_requests, investor_profiles, referrals, prospects, prospect_communications, plan_daily_performance, prospect_access_tokens, pii_access_log
 - **Always run tests against a test database, never production**
-- Key test files: test_contributions.py, test_withdrawals.py, test_nav_calculations.py, test_database_validation.py, test_chart_generation.py (includes TestBenchmarkChart), test_benchmarks.py (market data caching, normalization), test_ops_health_checks.py, test_remediation.py, test_brokerage_factory.py, test_combined_brokerage.py, test_tastytrade_client.py, test_etl.py, test_fund_flow.py, test_encryption.py, test_investor_profiles.py, test_discord_trade_notifier.py, test_discord_utils.py, test_discord_nav_updater.py, test_api_regression.py (tests fund-flow + benchmark + analysis endpoints), test_tutorials.py (tutorial infrastructure: annotator, HTML generator, video composer, terminal rendering), test_mindmap.py (data model, layout, Mermaid/PNG/SVG/HTML generators), test_portfolio_analysis.py (risk metrics, holdings aggregation, monthly performance, DB integration), test_report_generation_api.py (job tracking, input validation, rate limiting), test_auth_service.py (password validation, bcrypt hashing, verification flow, login/lockout, password reset), test_landing_page_api.py (teaser stats, prospect creation, public endpoints, rate limiting, input validation), test_admin_sync.py (admin key auth, upsert functions, sync payload assembly, endpoint integration), test_plan_classification.py (plan classification logic, compute_plan_performance, upsert_plan_performance, sync integration, plan API endpoints), test_prospect_access.py (token creation/validation/revocation, access tracking, prospect performance data, admin endpoints, security constraints)
+- Key test files: test_contributions.py, test_withdrawals.py, test_nav_calculations.py, test_database_validation.py, test_chart_generation.py (includes TestBenchmarkChart), test_benchmarks.py (market data caching, normalization), test_ops_health_checks.py, test_remediation.py, test_brokerage_factory.py, test_combined_brokerage.py, test_tastytrade_client.py, test_etl.py, test_fund_flow.py, test_encryption.py, test_investor_profiles.py, test_discord_trade_notifier.py, test_discord_utils.py, test_discord_nav_updater.py, test_api_regression.py (tests fund-flow + benchmark + analysis endpoints), test_tutorials.py (tutorial infrastructure: annotator, HTML generator, video composer, terminal rendering), test_mindmap.py (data model, layout, Mermaid/PNG/SVG/HTML generators), test_portfolio_analysis.py (risk metrics, holdings aggregation, monthly performance, DB integration), test_report_generation_api.py (job tracking, input validation, rate limiting), test_auth_service.py (password validation, bcrypt hashing, verification flow, login/lockout, password reset), test_landing_page_api.py (teaser stats, prospect creation, public endpoints, rate limiting, input validation), test_admin_sync.py (admin key auth, upsert functions, sync payload assembly, endpoint integration), test_plan_classification.py (plan classification logic, compute_plan_performance, upsert_plan_performance, sync integration, plan API endpoints), test_prospect_access.py (token creation/validation/revocation, access tracking, prospect performance data, admin endpoints, security constraints), test_pii_security.py (versioned ciphertext, multi-key decryption, key rotation, PII access log, audit triggers, security headers, startup validation)
 
 ## Coding Conventions
 

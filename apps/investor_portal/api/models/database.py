@@ -1597,3 +1597,41 @@ def get_prospect_performance_data(days: int = 90) -> Dict:
         }
     finally:
         conn.close()
+
+
+# ============================================================
+# PII Access Logging
+# ============================================================
+
+def log_pii_access(investor_id: str, field_name: str, access_type: str,
+                   performed_by: str = 'system', ip_address: str = None,
+                   context: str = None):
+    """
+    Log access to encrypted PII fields.
+
+    Non-fatal: errors are caught and logged, never propagated.
+    This ensures PII audit logging never breaks application flow.
+
+    Args:
+        investor_id: The investor whose PII was accessed
+        field_name: Which encrypted field (e.g., 'ssn_encrypted')
+        access_type: 'read' or 'write'
+        performed_by: Who accessed it (e.g., 'admin_cli', 'api', 'system')
+        ip_address: IP address of the accessor (if available)
+        context: Additional context (e.g., 'profile_view', 'key_rotation')
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO pii_access_log
+                (investor_id, field_name, access_type, performed_by, ip_address, context)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (investor_id, field_name, access_type, performed_by, ip_address, context))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        # Non-fatal: never let audit logging break application flow
+        pass

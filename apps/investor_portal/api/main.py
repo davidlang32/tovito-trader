@@ -16,21 +16,64 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import os
 import time
 
-from .config import settings, CORS_ORIGINS
+from .config import settings, CORS_ORIGINS, get_database_path
 from .routes import auth, investor, nav, fund_flow, profile, referral, reports, analysis, public, admin
+
+
+def _print_startup_banner():
+    """Print clear environment banner on API startup.
+
+    Makes it immediately obvious which environment and database the API
+    is using.  Warns loudly if production database detected outside of
+    production mode.
+    """
+    env = settings.ENV.upper()
+    db_path = get_database_path()
+    db_exists = db_path.exists()
+
+    # Banner
+    print("")
+    print("=" * 60)
+    if env == "PRODUCTION":
+        print(f"   TOVITO TRADER API  --  PRODUCTION")
+    else:
+        print(f"   TOVITO TRADER API  --  {env} MODE")
+    print("=" * 60)
+    print(f"   Database:    {settings.DATABASE_PATH}")
+    print(f"   DB exists:   {db_exists}")
+    print(f"   Portal URL:  {settings.PORTAL_BASE_URL}")
+    print(f"   Email:       {'enabled' if settings.ADMIN_EMAIL else 'disabled'}")
+    print("=" * 60)
+
+    # Safety warnings
+    if env != "PRODUCTION" and "dev_" not in settings.DATABASE_PATH:
+        print("")
+        print("   [WARN] *** NON-DEV DATABASE IN NON-PRODUCTION MODE ***")
+        print(f"   [WARN] DATABASE_PATH={settings.DATABASE_PATH}")
+        print("   [WARN] Expected 'dev_' prefix for non-production.")
+        print("   [WARN] Set TOVITO_ENV=production or use dev_tovito.db")
+        print("")
+
+    if not db_exists:
+        print("")
+        print(f"   [WARN] Database file not found: {db_path}")
+        print("   [WARN] Run: python scripts/setup/setup_test_database.py --env dev")
+        print("")
+
+    print("")
 
 
 # Lifespan for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    print(f"[START] Fund API starting...")
-    print(f"   Environment: {settings.ENV}")
-    print(f"   Database: {settings.DATABASE_PATH}")
+    _print_startup_banner()
     _ensure_db_views()
     _refresh_benchmark_cache()
+    _validate_encryption()
     _run_data_migrations()
     yield
     # Shutdown
@@ -96,6 +139,39 @@ def _refresh_benchmark_cache():
             print(f"   [WARN] Benchmark cache refresh failed: {ascii(str(e))}")
 
 
+def _validate_encryption():
+    """Validate encryption key on startup (non-fatal).
+
+    Tests that ENCRYPTION_KEY is set and can perform a round-trip
+    encrypt/decrypt.  Essential for early detection of misconfigured
+    keys -- without this, a wrong key silently starts the API and
+    only fails when a profile endpoint is first accessed.
+    """
+    try:
+        encryption_key = os.getenv('ENCRYPTION_KEY', '')
+        if not encryption_key:
+            print("   [WARN] Encryption: ENCRYPTION_KEY not set -- profile features disabled")
+            return
+
+        from src.utils.encryption import FieldEncryptor
+        enc = FieldEncryptor(encryption_key)
+        test_val = "encryption-startup-test"
+        result = enc.decrypt(enc.encrypt(test_val))
+        if result == test_val:
+            legacy_count = enc.legacy_key_count
+            if legacy_count > 0:
+                print(f"   [OK] Encryption: verified (current key + {legacy_count} legacy key(s))")
+            else:
+                print("   [OK] Encryption: verified")
+        else:
+            print("   [WARN] Encryption: round-trip verification failed")
+    except Exception as e:
+        try:
+            print(f"   [WARN] Encryption validation failed: {e}")
+        except UnicodeEncodeError:
+            print(f"   [WARN] Encryption validation failed: {ascii(str(e))}")
+
+
 def _run_data_migrations():
     """Run one-time data migrations on startup (non-fatal).
 
@@ -145,6 +221,47 @@ def _run_data_migrations():
             if migrations_applied > 0:
                 conn.commit()
 
+            # Phase 13: Create plan_daily_performance table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS plan_daily_performance (
+                    date TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    market_value REAL NOT NULL,
+                    cost_basis REAL NOT NULL,
+                    unrealized_pl REAL NOT NULL,
+                    allocation_pct REAL NOT NULL,
+                    position_count INTEGER NOT NULL,
+                    PRIMARY KEY (date, plan_id)
+                )
+            """)
+            # Check if table was just created (no rows = new table)
+            cursor.execute("SELECT COUNT(*) FROM plan_daily_performance")
+            # Table exists now either way — commit any pending changes
+            conn.commit()
+
+            # Phase 19: Create pii_access_log table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pii_access_log (
+                    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    investor_id TEXT NOT NULL,
+                    field_name TEXT NOT NULL,
+                    access_type TEXT NOT NULL CHECK (access_type IN ('read', 'write')),
+                    performed_by TEXT NOT NULL DEFAULT 'system',
+                    ip_address TEXT,
+                    context TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pii_access_investor
+                ON pii_access_log(investor_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pii_access_timestamp
+                ON pii_access_log(timestamp)
+            """)
+            conn.commit()
+
             if migrations_applied == 0:
                 print("   [OK] Data migrations: nothing to do")
         finally:
@@ -175,6 +292,28 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    """Add security headers to all API responses.
+
+    These headers protect against common web vulnerabilities:
+    - X-Content-Type-Options: prevents MIME-type sniffing
+    - X-Frame-Options: prevents clickjacking
+    - X-XSS-Protection: enables browser XSS filtering
+    - Referrer-Policy: limits referrer information leakage
+    - Permissions-Policy: restricts browser feature access
+    - Cache-Control: prevents caching of API responses
+    """
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 # Request timing middleware

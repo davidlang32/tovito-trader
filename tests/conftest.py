@@ -488,6 +488,36 @@ def _create_test_schema(conn):
     conn.execute("CREATE INDEX idx_pat_token ON prospect_access_tokens(token)")
     conn.execute("CREATE INDEX idx_pat_prospect ON prospect_access_tokens(prospect_id)")
 
+    # Audit log table
+    conn.execute("""
+        CREATE TABLE audit_log (
+            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            table_name TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            old_values TEXT,
+            new_values TEXT,
+            performed_by TEXT DEFAULT 'system',
+            ip_address TEXT,
+            notes TEXT
+        )
+    """)
+
+    # PII access log table
+    conn.execute("""
+        CREATE TABLE pii_access_log (
+            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            investor_id TEXT NOT NULL,
+            field_name TEXT NOT NULL,
+            access_type TEXT NOT NULL CHECK (access_type IN ('read', 'write')),
+            performed_by TEXT NOT NULL DEFAULT 'system',
+            ip_address TEXT,
+            context TEXT
+        )
+    """)
+
     conn.commit()
 
 

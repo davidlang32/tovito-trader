@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # SCHEMA DEFINITIONS
 # ============================================================
 
-SCHEMA_VERSION = "2.3.0"
+SCHEMA_VERSION = "2.4.0"
 
 # Core tables
 INVESTORS_TABLE = """
@@ -483,6 +483,24 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 """
 
+PII_ACCESS_LOG_TABLE = """
+CREATE TABLE IF NOT EXISTS pii_access_log (
+    -- Track who accessed/modified encrypted PII fields
+    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- Access details
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    investor_id TEXT NOT NULL,
+    field_name TEXT NOT NULL,
+    access_type TEXT NOT NULL CHECK (access_type IN ('read', 'write')),
+
+    -- Context
+    performed_by TEXT NOT NULL DEFAULT 'system',
+    ip_address TEXT,
+    context TEXT
+);
+"""
+
 SYSTEM_CONFIG_TABLE = """
 CREATE TABLE IF NOT EXISTS system_config (
     key TEXT PRIMARY KEY,
@@ -556,6 +574,11 @@ INDEXES = [
     # Audit Log
     "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)",
     "CREATE INDEX IF NOT EXISTS idx_audit_table ON audit_log(table_name)",
+
+    # PII Access Log
+    "CREATE INDEX IF NOT EXISTS idx_pii_access_investor ON pii_access_log(investor_id)",
+    "CREATE INDEX IF NOT EXISTS idx_pii_access_timestamp ON pii_access_log(timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_pii_access_field ON pii_access_log(field_name)",
 ]
 
 # ============================================================
@@ -762,8 +785,56 @@ TRIGGERS = [
     BEGIN
         INSERT INTO audit_log (table_name, record_id, action, new_values)
         VALUES ('transactions', NEW.transaction_id, 'INSERT',
-                json_object('investor_id', NEW.investor_id, 'type', NEW.transaction_type, 
+                json_object('investor_id', NEW.investor_id, 'type', NEW.transaction_type,
                            'amount', NEW.amount, 'shares', NEW.shares_transacted));
+    END
+    """,
+
+    # Audit log for investor profile changes (encrypted fields shown as [ENCRYPTED])
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_profiles_insert
+    AFTER INSERT ON investor_profiles
+    FOR EACH ROW
+    BEGIN
+        INSERT INTO audit_log (table_name, record_id, action, new_values)
+        VALUES ('investor_profiles', NEW.investor_id, 'INSERT',
+                json_object(
+                    'full_legal_name', NEW.full_legal_name,
+                    'email_primary', NEW.email_primary,
+                    'ssn_encrypted', CASE WHEN NEW.ssn_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'tax_id_encrypted', CASE WHEN NEW.tax_id_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'bank_routing_encrypted', CASE WHEN NEW.bank_routing_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'bank_account_encrypted', CASE WHEN NEW.bank_account_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'profile_completed', NEW.profile_completed
+                ));
+    END
+    """,
+
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_profiles_update
+    AFTER UPDATE ON investor_profiles
+    FOR EACH ROW
+    BEGIN
+        INSERT INTO audit_log (table_name, record_id, action, old_values, new_values)
+        VALUES ('investor_profiles', NEW.investor_id, 'UPDATE',
+                json_object(
+                    'full_legal_name', OLD.full_legal_name,
+                    'email_primary', OLD.email_primary,
+                    'ssn_encrypted', CASE WHEN OLD.ssn_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'tax_id_encrypted', CASE WHEN OLD.tax_id_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'bank_routing_encrypted', CASE WHEN OLD.bank_routing_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'bank_account_encrypted', CASE WHEN OLD.bank_account_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'profile_completed', OLD.profile_completed
+                ),
+                json_object(
+                    'full_legal_name', NEW.full_legal_name,
+                    'email_primary', NEW.email_primary,
+                    'ssn_encrypted', CASE WHEN NEW.ssn_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'tax_id_encrypted', CASE WHEN NEW.tax_id_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'bank_routing_encrypted', CASE WHEN NEW.bank_routing_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'bank_account_encrypted', CASE WHEN NEW.bank_account_encrypted IS NOT NULL THEN '[ENCRYPTED]' ELSE NULL END,
+                    'profile_completed', NEW.profile_completed
+                ));
     END
     """
 ]
@@ -816,6 +887,7 @@ class DatabaseManager:
             cursor.execute(POSITION_SNAPSHOTS_TABLE)
             cursor.execute(BENCHMARK_PRICES_TABLE)
             cursor.execute(AUDIT_LOG_TABLE)
+            cursor.execute(PII_ACCESS_LOG_TABLE)
             cursor.execute(SYSTEM_CONFIG_TABLE)
 
             # Create indexes
@@ -932,8 +1004,9 @@ class DatabaseManager:
             cursor.execute(POSITION_SNAPSHOTS_TABLE)
             cursor.execute(BENCHMARK_PRICES_TABLE)
             cursor.execute(AUDIT_LOG_TABLE)
+            cursor.execute(PII_ACCESS_LOG_TABLE)
             cursor.execute(SYSTEM_CONFIG_TABLE)
-            
+
             # Create indexes
             for idx in INDEXES:
                 try:

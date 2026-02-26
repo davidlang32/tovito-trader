@@ -10,6 +10,7 @@ Usage:
     python scripts/setup/setup_test_database.py              # Creates dev database
     python scripts/setup/setup_test_database.py --env test    # Creates test database
     python scripts/setup/setup_test_database.py --env dev     # Creates dev database (same as default)
+    python scripts/setup/setup_test_database.py --env dev --reset-prospects  # Clear prospect data only
 """
 
 import warnings
@@ -21,6 +22,7 @@ import sqlite3
 import argparse
 from pathlib import Path
 from datetime import datetime, timedelta
+import math
 
 # Add project root to Python path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -41,7 +43,7 @@ def create_schema(conn):
     kept in sync with any production schema changes.
     """
 
-    # Investors table (mirrors production schema_v2.py — PK is investor_id)
+    # Investors table (mirrors production schema_v2.py -- PK is investor_id)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS investors (
             investor_id TEXT PRIMARY KEY,
@@ -87,6 +89,7 @@ def create_schema(conn):
             shares_transacted REAL NOT NULL,
             reference_id TEXT,
             notes TEXT,
+            is_deleted INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             FOREIGN KEY (investor_id) REFERENCES investors(investor_id)
         )
@@ -395,6 +398,106 @@ def create_schema(conn):
         )
     """)
 
+    # Prospects table (with email verification columns)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS prospects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            phone TEXT,
+            source TEXT DEFAULT 'website',
+            status TEXT DEFAULT 'new',
+            notes TEXT,
+            email_verified INTEGER DEFAULT 0,
+            verification_token TEXT,
+            verification_token_expires TIMESTAMP,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Prospect communications table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS prospect_communications (
+            comm_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prospect_id INTEGER NOT NULL,
+            comm_type TEXT NOT NULL,
+            subject TEXT,
+            body TEXT,
+            status TEXT DEFAULT 'sent',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+        )
+    """)
+
+    # Prospect access tokens table (gated fund preview)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS prospect_access_tokens (
+            token_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prospect_id INTEGER NOT NULL,
+            token TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            last_accessed_at TIMESTAMP,
+            access_count INTEGER DEFAULT 0,
+            is_revoked INTEGER DEFAULT 0,
+            created_by TEXT DEFAULT 'admin',
+            FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+        )
+    """)
+
+    # Benchmark prices cache table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS benchmark_prices (
+            date TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            close_price REAL NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (date, ticker)
+        )
+    """)
+
+    # Plan daily performance table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS plan_daily_performance (
+            date TEXT NOT NULL,
+            plan_id TEXT NOT NULL,
+            market_value REAL NOT NULL DEFAULT 0,
+            cost_basis REAL NOT NULL DEFAULT 0,
+            unrealized_pl REAL NOT NULL DEFAULT 0,
+            allocation_pct REAL NOT NULL DEFAULT 0,
+            position_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (date, plan_id)
+        )
+    """)
+
+    # Audit log table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS audit_log (
+            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            table_name TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            old_values TEXT,
+            new_values TEXT
+        )
+    """)
+
+    # PII access log table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pii_access_log (
+            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            investor_id TEXT NOT NULL,
+            field_name TEXT NOT NULL,
+            access_type TEXT NOT NULL CHECK (access_type IN ('read', 'write')),
+            performed_by TEXT NOT NULL DEFAULT 'system',
+            ip_address TEXT,
+            context TEXT
+        )
+    """)
+
     conn.commit()
 
 
@@ -402,7 +505,7 @@ def populate_sample_data(conn):
     """
     Populate the database with realistic synthetic data for dev/test.
 
-    All data is completely synthetic — no real investor information.
+    All data is completely synthetic -- no real investor information.
     """
     now = datetime.now().isoformat()
 
@@ -429,31 +532,48 @@ def populate_sample_data(conn):
             VALUES (?, ?, ?, 'Initial', ?, 1.0, ?, ?)
         """, (join_date, inv_id, name, capital, capital, now))
 
-    # --- 20 days of NAV history ---
+    # --- NAV history from Jan 1 through today ---
+    # Generate ~57 trading days of realistic NAV data
     base_date = datetime(2026, 1, 1)
+    today = datetime.now()
     total_shares = 30000  # First 3 investors
     nav = 1.0
     nav_data = []
+    prev_value = nav * total_shares
+    day_count = 0
 
-    for i in range(20):
-        d = base_date + timedelta(days=i)
+    d = base_date
+    while d <= today:
         if d.weekday() >= 5:  # Skip weekends
+            d += timedelta(days=1)
             continue
-        # Small random-ish growth (deterministic for reproducibility)
-        daily_change = 0.003 * (1 if i % 3 != 2 else -1)
+
+        # Deterministic growth pattern: mostly up with periodic dips
+        # Creates a realistic-looking equity curve
+        day_count += 1
+        daily_change = 0.004 * math.sin(day_count * 0.3) + 0.002
+        # Add some larger moves on specific days
+        if day_count % 7 == 0:
+            daily_change = -0.008  # Weekly pullback
+        elif day_count % 13 == 0:
+            daily_change = 0.012  # Strong rally
         nav = round(nav * (1 + daily_change), 4)
-        total_value = round(nav * total_shares, 2)
 
         # Add Delta investor shares on Jan 15
         if d >= datetime(2026, 1, 15) and total_shares == 30000:
             total_shares += 8000
-            total_value = round(nav * total_shares, 2)
+
+        total_value = round(nav * total_shares, 2)
+        change_dollars = round(total_value - prev_value, 2) if day_count > 1 else 0
+        change_pct = round(daily_change * 100, 2) if day_count > 1 else 0
+        prev_value = total_value
 
         nav_data.append((
             d.strftime("%Y-%m-%d"), nav, total_value, total_shares,
-            round(total_value - (nav - daily_change) * total_shares, 2) if i > 0 else 0,
-            round(daily_change * 100, 2) if i > 0 else 0,
+            change_dollars, change_pct,
         ))
+
+        d += timedelta(days=1)
 
     for nd in nav_data:
         conn.execute("""
@@ -470,6 +590,10 @@ def populate_sample_data(conn):
         ("2026-01-06", "sell", "sell_to_close", "SPY 260320C500", 5, 4.80, 2400.00, "tastytrade", "TT-DEV-003"),
         ("2026-01-07", "sell", "sell", "AAPL", 25, 190.00, 4750.00, "tastytrade", "TT-DEV-004"),
         ("2026-01-10", "buy", "buy", "MSFT", 30, 420.00, -12600.00, "tastytrade", "TT-DEV-005"),
+        ("2026-01-15", "buy", "buy", "SGOV", 100, 100.50, -10050.00, "tastytrade", "TT-DEV-006"),
+        ("2026-01-22", "buy", "buy", "SPY", 20, 590.00, -11800.00, "tastytrade", "TT-DEV-007"),
+        ("2026-02-03", "sell", "sell", "MSFT", 15, 435.00, 6525.00, "tastytrade", "TT-DEV-008"),
+        ("2026-02-10", "buy", "buy_to_open", "QQQ 260320C520", 10, 5.50, -5500.00, "tastytrade", "TT-DEV-009"),
     ]
 
     for t in trades:
@@ -480,9 +604,69 @@ def populate_sample_data(conn):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Trade', 'Stock')
         """, t)
 
+    # --- Benchmark Prices (SPY, QQQ, BTC-USD) ---
+    # Generate synthetic benchmark data matching NAV dates
+    spy_base, qqq_base, btc_base = 590.0, 520.0, 95000.0
+    d = base_date
+    day_idx = 0
+    while d <= today:
+        if d.weekday() >= 5:
+            d += timedelta(days=1)
+            continue
+
+        day_idx += 1
+        date_str = d.strftime("%Y-%m-%d")
+
+        # Correlated but different movement patterns
+        spy_change = 0.003 * math.sin(day_idx * 0.25) + 0.0015
+        qqq_change = 0.004 * math.sin(day_idx * 0.28) + 0.0018
+        btc_change = 0.008 * math.sin(day_idx * 0.2) + 0.002
+
+        spy_base = round(spy_base * (1 + spy_change), 2)
+        qqq_base = round(qqq_base * (1 + qqq_change), 2)
+        btc_base = round(btc_base * (1 + btc_change), 2)
+
+        for ticker, price in [("SPY", spy_base), ("QQQ", qqq_base), ("BTC-USD", btc_base)]:
+            conn.execute("""
+                INSERT INTO benchmark_prices (date, ticker, close_price)
+                VALUES (?, ?, ?)
+            """, (date_str, ticker, price))
+
+        d += timedelta(days=1)
+
+    # --- Plan Daily Performance ---
+    # Generate plan allocation data matching NAV dates
+    d = base_date
+    while d <= today:
+        if d.weekday() >= 5:
+            d += timedelta(days=1)
+            continue
+
+        date_str = d.strftime("%Y-%m-%d")
+        # Simulate plan allocations (roughly: 30% cash, 40% ETF, 30% plan A)
+        total_val = total_shares * nav  # approximate
+        cash_val = round(total_val * 0.30, 2)
+        etf_val = round(total_val * 0.40, 2)
+        plan_a_val = round(total_val * 0.30, 2)
+
+        plans = [
+            (date_str, "plan_cash", cash_val, cash_val * 0.99, cash_val * 0.01, 30.0, 2),
+            (date_str, "plan_etf", etf_val, etf_val * 0.95, etf_val * 0.05, 40.0, 3),
+            (date_str, "plan_a", plan_a_val, plan_a_val * 0.90, plan_a_val * 0.10, 30.0, 4),
+        ]
+
+        for p in plans:
+            conn.execute("""
+                INSERT INTO plan_daily_performance
+                (date, plan_id, market_value, cost_basis, unrealized_pl, allocation_pct, position_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, p)
+
+        d += timedelta(days=1)
+
     # --- System Config ---
     config = [
-        ("schema_version", "2.2.0", "Database schema version"),
+        ("schema_version", "2.4.0", "Database schema version"),
         ("tax_rate", "0.37", "Federal tax rate"),
         ("fund_name", "Tovito Trader DEV", "Fund display name"),
     ]
@@ -512,7 +696,19 @@ def populate_sample_data(conn):
                 VALUES (?, ?, 1, ?, ?)
             """, (inv_id, password_hash, now, now))
     except ImportError:
-        pass  # bcrypt not installed — skip auth records
+        pass  # bcrypt not installed -- skip auth records
+
+    # --- Investor Profiles ---
+    profiles = [
+        ("20260101-01A", "Alpha Investor", "alpha@test.com", "555-0101"),
+        ("20260101-02A", "Beta Investor", "beta@test.com", "555-0102"),
+    ]
+    for inv_id, name, email, phone in profiles:
+        conn.execute("""
+            INSERT INTO investor_profiles
+            (investor_id, full_legal_name, email_primary, phone_mobile, communication_preference, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'email', ?, ?)
+        """, (inv_id, name, email, phone, now, now))
 
     # --- Sample System Log ---
     conn.execute("""
@@ -521,6 +717,50 @@ def populate_sample_data(conn):
     """, (now, f"Created with setup_test_database.py at {now}"))
 
     conn.commit()
+
+
+def reset_prospects(env='dev'):
+    """Clear all prospect-related data without rebuilding the entire database."""
+
+    db_path = ENV_DB_PATHS.get(env)
+    if not db_path:
+        print(f"Unknown environment: {env}")
+        sys.exit(1)
+
+    if not db_path.exists():
+        print(f"Database not found: {db_path}")
+        print(f"Run without --reset-prospects first to create it.")
+        sys.exit(1)
+
+    conn = sqlite3.connect(db_path)
+
+    tables_to_clear = [
+        'prospect_access_tokens',
+        'prospect_communications',
+        'prospects',
+    ]
+
+    print("=" * 60)
+    print("RESET PROSPECTS")
+    print("=" * 60)
+    print(f"Database: {db_path}")
+    print()
+
+    for table in tables_to_clear:
+        try:
+            cursor = conn.execute(f"SELECT COUNT(*) FROM [{table}]")
+            count = cursor.fetchone()[0]
+            conn.execute(f"DELETE FROM [{table}]")
+            print(f"  Cleared {table}: {count} rows deleted")
+        except Exception as e:
+            print(f"  Skipped {table}: {e}")
+
+    conn.commit()
+    conn.close()
+
+    print()
+    print("Prospect data cleared. Ready for fresh testing.")
+    print()
 
 
 def create_database(env='dev'):
@@ -554,14 +794,18 @@ def create_database(env='dev'):
 
     print("Creating schema...")
     create_schema(conn)
-    print("  Done (23 tables created)")
+
+    # Count tables
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+    table_count = cursor.fetchone()[0]
+    print(f"  Done ({table_count} tables created)")
     print()
 
     print("Populating sample data...")
     populate_sample_data(conn)
 
     # Print summary
-    cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = [r[0] for r in cursor.fetchall()]
 
@@ -583,11 +827,16 @@ def create_database(env='dev'):
     print("=" * 60)
     print()
     if env == 'dev':
-        print("To use this database, set in your .env:")
-        print(f"  DATABASE_PATH={db_path.relative_to(PROJECT_ROOT)}")
+        print("Start the dev environment with:")
+        print("  python scripts/setup/start_dev.py")
         print()
-        print("Or set the environment variable:")
+        print("Or manually:")
         print("  set TOVITO_ENV=development")
+        print("  python -m uvicorn apps.investor_portal.api.main:app --reload --port 8000")
+        print()
+        print("Login credentials:")
+        print("  Email: alpha@test.com")
+        print("  Password: TestPass123!")
     else:
         print("This database is used automatically by pytest.")
         print("Run tests with: pytest tests/ -v")
@@ -602,10 +851,17 @@ def main():
         '--env', choices=['dev', 'test'], default='dev',
         help='Environment to create database for (default: dev)'
     )
+    parser.add_argument(
+        '--reset-prospects', action='store_true',
+        help='Only clear prospect-related tables (prospects, access tokens, communications)'
+    )
     args = parser.parse_args()
 
     try:
-        create_database(args.env)
+        if args.reset_prospects:
+            reset_prospects(args.env)
+        else:
+            create_database(args.env)
     except Exception as e:
         print(f"\nERROR: {e}")
         import traceback

@@ -20,8 +20,8 @@ const SectionHeader = ({ icon: Icon, title, subtitle, iconColor = 'text-emerald-
         <Icon className={`w-5 h-5 ${iconColor}`} />
       </div>
       <div>
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-        {subtitle && <p className="text-sm text-gray-500">{subtitle}</p>}
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{title}</h3>
+        {subtitle && <p className="text-sm text-gray-500 dark:text-slate-400">{subtitle}</p>}
       </div>
     </div>
     {children}
@@ -29,11 +29,11 @@ const SectionHeader = ({ icon: Icon, title, subtitle, iconColor = 'text-emerald-
 );
 
 const FieldRow = ({ label, value, icon: Icon }) => (
-  <div className="flex items-start gap-3 py-2.5 border-b border-gray-50 last:border-0">
-    {Icon && <Icon className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />}
+  <div className="flex items-start gap-3 py-2.5 border-b border-gray-50 dark:border-slate-800/30 last:border-0">
+    {Icon && <Icon className="w-4 h-4 text-gray-400 dark:text-slate-500 mt-0.5 flex-shrink-0" />}
     <div className="flex-1 min-w-0">
-      <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">{label}</p>
-      <p className="text-sm text-gray-900 mt-0.5">{value || <span className="text-gray-300 italic">Not provided</span>}</p>
+      <p className="text-[10px] text-gray-400 dark:text-slate-500 font-semibold uppercase tracking-wider">{label}</p>
+      <p className="text-sm text-gray-900 dark:text-slate-100 mt-0.5">{value || <span className="text-gray-300 dark:text-slate-600 italic">Not provided</span>}</p>
     </div>
   </div>
 );
@@ -41,8 +41,8 @@ const FieldRow = ({ label, value, icon: Icon }) => (
 const StatusBadge = ({ onFile, label }) => (
   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
     onFile
-      ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
-      : 'bg-gray-50 text-gray-400 border border-gray-200'
+      ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
+      : 'bg-gray-50 dark:bg-slate-700 text-gray-400 dark:text-slate-500 border border-gray-200 dark:border-slate-700'
   }`}>
     {onFile ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
     {onFile ? `${label} on file` : `No ${label} on file`}
@@ -111,21 +111,21 @@ const ProfileSection = () => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+      <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400 dark:text-slate-500" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-      <SectionHeader icon={User} title="Profile Information" subtitle="Your account and contact details" iconColor="text-blue-600" iconBg="bg-blue-50">
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
+      <SectionHeader icon={User} title="Profile Information" subtitle="Your account and contact details" iconColor="text-blue-600 dark:text-blue-400" iconBg="bg-blue-50 dark:bg-blue-900/30">
         {!editing ? (
           <button
             onClick={() => setEditing(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition"
           >
             <Edit3 className="w-3.5 h-3.5" />
             Edit
@@ -134,7 +134,7 @@ const ProfileSection = () => {
           <div className="flex gap-2">
             <button
               onClick={() => setEditing(false)}
-              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 transition"
             >
               <X className="w-3.5 h-3.5" />
               Cancel
@@ -153,7 +153,7 @@ const ProfileSection = () => {
 
       {saveMsg && (
         <div className={`mb-4 px-3 py-2 rounded-lg text-xs font-medium ${
-          saveMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+          saveMsg.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
         }`}>
           {saveMsg.text}
         </div>
@@ -164,86 +164,86 @@ const ProfileSection = () => {
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Full Legal Name</label>
+              <label className="text-[10px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider">Full Legal Name</label>
               <input
                 type="text"
                 value={form.full_legal_name}
                 onChange={e => setForm(f => ({ ...f, full_legal_name: e.target.value }))}
-                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Email</label>
+              <label className="text-[10px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider">Email</label>
               <input
                 type="email"
                 value={form.email_primary}
                 onChange={e => setForm(f => ({ ...f, email_primary: e.target.value }))}
-                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Mobile Phone</label>
+              <label className="text-[10px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider">Mobile Phone</label>
               <input
                 type="tel"
                 value={form.phone_mobile}
                 onChange={e => setForm(f => ({ ...f, phone_mobile: e.target.value }))}
-                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Country</label>
+              <label className="text-[10px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider">Country</label>
               <input
                 type="text"
                 value={form.home_country}
                 onChange={e => setForm(f => ({ ...f, home_country: e.target.value }))}
-                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
           <div>
-            <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Address Line 1</label>
+            <label className="text-[10px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider">Address Line 1</label>
             <input
               type="text"
               value={form.home_address_line1}
               onChange={e => setForm(f => ({ ...f, home_address_line1: e.target.value }))}
-              className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div>
-            <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Address Line 2</label>
+            <label className="text-[10px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider">Address Line 2</label>
             <input
               type="text"
               value={form.home_address_line2}
               onChange={e => setForm(f => ({ ...f, home_address_line2: e.target.value }))}
-              className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">City</label>
+              <label className="text-[10px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider">City</label>
               <input
                 type="text"
                 value={form.home_city}
                 onChange={e => setForm(f => ({ ...f, home_city: e.target.value }))}
-                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">State</label>
+              <label className="text-[10px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider">State</label>
               <input
                 type="text"
                 value={form.home_state}
                 onChange={e => setForm(f => ({ ...f, home_state: e.target.value }))}
-                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">ZIP</label>
+              <label className="text-[10px] text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider">ZIP</label>
               <input
                 type="text"
                 value={form.home_zip}
                 onChange={e => setForm(f => ({ ...f, home_zip: e.target.value }))}
-                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full mt-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -309,17 +309,17 @@ const PasswordSection = () => {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-      <SectionHeader icon={Lock} title="Change Password" subtitle="Update your account password" iconColor="text-amber-600" iconBg="bg-amber-50" />
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
+      <SectionHeader icon={Lock} title="Change Password" subtitle="Update your account password" iconColor="text-amber-600 dark:text-amber-400" iconBg="bg-amber-50 dark:bg-amber-900/30" />
 
-      <p className="text-sm text-gray-600 mb-4">
+      <p className="text-sm text-gray-600 dark:text-slate-400 mb-4">
         To change your password, we'll send a secure reset link to your email address
         (<span className="font-medium">{user?.email}</span>). Click the link to set a new password.
       </p>
 
       {message && (
         <div className={`mb-4 px-3 py-2 rounded-lg text-sm ${
-          message.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+          message.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
         }`}>
           {message.type === 'success' && <CheckCircle2 className="w-4 h-4 inline mr-1.5" />}
           {message.text}
@@ -329,7 +329,7 @@ const PasswordSection = () => {
       <button
         onClick={handleResetRequest}
         disabled={sending}
-        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition disabled:opacity-50"
+        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 transition disabled:opacity-50"
       >
         {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
         {sending ? 'Sending...' : 'Send Password Reset Link'}
@@ -392,35 +392,35 @@ const PreferencesSection = () => {
       onClick={() => handleSave(groupKey, value)}
       className={`flex-1 p-3 rounded-lg border-2 text-left transition ${
         currentValue === value
-          ? 'border-emerald-500 bg-emerald-50/50'
-          : 'border-gray-200 bg-white hover:border-gray-300'
+          ? 'border-emerald-500 dark:border-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/20'
+          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:border-gray-300 dark:hover:border-slate-500'
       }`}
     >
       <div className="flex items-center gap-2">
         <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-          currentValue === value ? 'border-emerald-500' : 'border-gray-300'
+          currentValue === value ? 'border-emerald-500 dark:border-emerald-400' : 'border-gray-300 dark:border-slate-600'
         }`}>
           {currentValue === value && <div className="w-2 h-2 rounded-full bg-emerald-500" />}
         </div>
-        <span className="text-sm font-medium text-gray-900">{label}</span>
+        <span className="text-sm font-medium text-gray-900 dark:text-slate-100">{label}</span>
       </div>
-      <p className="text-[11px] text-gray-500 mt-1 ml-6">{description}</p>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-1 ml-6">{description}</p>
     </button>
   );
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-      <SectionHeader icon={Mail} title="Communication Preferences" subtitle="How you'd like to hear from us" iconColor="text-purple-600" iconBg="bg-purple-50" />
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
+      <SectionHeader icon={Mail} title="Communication Preferences" subtitle="How you'd like to hear from us" iconColor="text-purple-600 dark:text-purple-400" iconBg="bg-purple-50 dark:bg-purple-900/30" />
 
       {saveMsg && (
-        <div className="mb-4 px-3 py-2 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700">
+        <div className="mb-4 px-3 py-2 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
           {saveMsg.text}
         </div>
       )}
 
       <div className="space-y-4">
         <div>
-          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Communication Method</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider mb-2">Communication Method</p>
           <div className="flex gap-3">
             <ToggleOption
               label="Email"
@@ -455,29 +455,29 @@ const AppearanceSection = () => {
       onClick={() => setDarkMode(value)}
       className={`flex-1 p-3 rounded-lg border-2 text-left transition ${
         darkMode === value
-          ? 'border-emerald-500 bg-emerald-50/50'
-          : 'border-gray-200 bg-white hover:border-gray-300'
+          ? 'border-emerald-500 dark:border-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/20'
+          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:border-gray-300 dark:hover:border-slate-500'
       }`}
     >
       <div className="flex items-center gap-2">
         <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-          darkMode === value ? 'border-emerald-500' : 'border-gray-300'
+          darkMode === value ? 'border-emerald-500 dark:border-emerald-400' : 'border-gray-300 dark:border-slate-600'
         }`}>
           {darkMode === value && <div className="w-2 h-2 rounded-full bg-emerald-500" />}
         </div>
-        <Icon className="w-4 h-4 text-gray-600" />
-        <span className="text-sm font-medium text-gray-900">{label}</span>
+        <Icon className="w-4 h-4 text-gray-600 dark:text-slate-400" />
+        <span className="text-sm font-medium text-gray-900 dark:text-slate-100">{label}</span>
       </div>
-      <p className="text-[11px] text-gray-500 mt-1 ml-6">{description}</p>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-1 ml-6">{description}</p>
     </button>
   );
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-      <SectionHeader icon={Moon} title="Appearance" subtitle="Customize the look and feel" iconColor="text-indigo-600" iconBg="bg-indigo-50" />
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
+      <SectionHeader icon={Moon} title="Appearance" subtitle="Customize the look and feel" iconColor="text-indigo-600 dark:text-indigo-400" iconBg="bg-indigo-50 dark:bg-indigo-900/30" />
 
       <div>
-        <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Theme</p>
+        <p className="text-xs text-gray-500 dark:text-slate-400 font-semibold uppercase tracking-wider mb-2">Theme</p>
         <div className="flex gap-3">
           <ThemeButton
             label="Light"
@@ -505,33 +505,33 @@ const QuickLinks = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <SectionHeader icon={ExternalLink} title="Quick Actions" subtitle="Common account actions" iconColor="text-gray-600" iconBg="bg-gray-50" />
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6">
+      <SectionHeader icon={ExternalLink} title="Quick Actions" subtitle="Common account actions" iconColor="text-gray-600 dark:text-slate-400" iconBg="bg-gray-50 dark:bg-slate-700" />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           onClick={() => navigate('/activity')}
-          className="flex items-center gap-3 p-4 rounded-xl border border-emerald-200 bg-emerald-50/50 hover:bg-emerald-50 transition text-left"
+          className="flex items-center gap-3 p-4 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/20 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition text-left"
         >
-          <div className="p-2 rounded-lg bg-emerald-100">
-            <ArrowDownRight className="w-5 h-5 text-emerald-600" />
+          <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
+            <ArrowDownRight className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-emerald-700">Make a Contribution</p>
-            <p className="text-[11px] text-emerald-600">Add funds to your account</p>
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Make a Contribution</p>
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400">Add funds to your account</p>
           </div>
         </button>
 
         <button
           onClick={() => navigate('/activity')}
-          className="flex items-center gap-3 p-4 rounded-xl border border-red-200 bg-red-50/50 hover:bg-red-50 transition text-left"
+          className="flex items-center gap-3 p-4 rounded-xl border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/20 hover:bg-red-50 dark:hover:bg-red-900/20 transition text-left"
         >
-          <div className="p-2 rounded-lg bg-red-100">
-            <ArrowUpRight className="w-5 h-5 text-red-600" />
+          <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/40">
+            <ArrowUpRight className="w-5 h-5 text-red-600 dark:text-red-400" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-red-700">Request a Withdrawal</p>
-            <p className="text-[11px] text-red-600">Withdraw from your account</p>
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">Request a Withdrawal</p>
+            <p className="text-[11px] text-red-600 dark:text-red-400">Withdraw from your account</p>
           </div>
         </button>
       </div>
@@ -547,8 +547,8 @@ const SettingsPage = () => {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-20 lg:pb-8">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Settings</h2>
-        <p className="text-gray-500 text-sm">Manage your account, profile, and preferences</p>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Settings</h2>
+        <p className="text-gray-500 dark:text-slate-400 text-sm">Manage your account, profile, and preferences</p>
       </div>
 
       <ProfileSection />

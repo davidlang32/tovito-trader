@@ -3,12 +3,45 @@ Fund API Configuration
 =======================
 
 Loads settings from environment variables.
+
+Environment selection:
+- TOVITO_ENV env var selects the environment (default: development)
+- Looks for config/.env.{TOVITO_ENV} first (e.g., config/.env.development)
+- Falls back to root .env if env-specific file not found
+- On Railway: TOVITO_ENV=production, no config folder, uses env vars directly
 """
 
 import os
 from pathlib import Path
 from typing import List
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+
+def _load_env_file():
+    """Load the correct .env file based on TOVITO_ENV.
+
+    Priority:
+    1. config/.env.{TOVITO_ENV} (e.g., config/.env.development)
+    2. Root .env (fallback — production secrets on local machine)
+    3. OS environment variables (Railway sets these directly)
+    """
+    env_name = os.getenv("TOVITO_ENV", "development")
+
+    # API is at apps/investor_portal/api/, project root is 3 levels up
+    project_root = Path(__file__).parent.parent.parent.parent
+    env_specific = project_root / "config" / f".env.{env_name}"
+    env_root = project_root / ".env"
+
+    if env_specific.exists():
+        load_dotenv(env_specific, override=True)
+    elif env_root.exists():
+        load_dotenv(env_root, override=True)
+    # else: rely on OS-level env vars (Railway, CI, etc.)
+
+
+# Load environment-specific .env BEFORE Settings class reads os.getenv()
+_load_env_file()
 
 
 def _build_cors_origins() -> List[str]:
@@ -49,7 +82,7 @@ class Settings(BaseSettings):
     ENV: str = os.getenv("TOVITO_ENV", "development")
 
     # Database
-    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/tovito.db")
+    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/dev_tovito.db")
 
     # JWT Settings
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "CHANGE-THIS-IN-PRODUCTION-use-openssl-rand-hex-32")

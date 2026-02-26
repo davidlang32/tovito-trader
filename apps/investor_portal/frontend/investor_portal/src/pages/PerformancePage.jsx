@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import { createChart, AreaSeries, LineSeries } from 'lightweight-charts';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { useApi } from '../hooks/useApi';
 import { API_BASE_URL } from '../config';
 
@@ -24,14 +25,14 @@ const formatPctShort = (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
 // SECTION HEADER
 // ============================================================
 
-const SectionHeader = ({ icon: Icon, title, subtitle, iconColor = 'text-emerald-600', iconBg = 'bg-emerald-50' }) => (
+const SectionHeader = ({ icon: Icon, title, subtitle, iconColor = 'text-emerald-600 dark:text-emerald-400', iconBg = 'bg-emerald-50 dark:bg-emerald-900/30' }) => (
   <div className="flex items-center gap-3 mb-5">
     <div className={`p-2 rounded-lg ${iconBg}`}>
       <Icon className={`w-5 h-5 ${iconColor}`} />
     </div>
     <div>
-      <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-      {subtitle && <p className="text-sm text-gray-500">{subtitle}</p>}
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{title}</h3>
+      {subtitle && <p className="text-sm text-gray-500 dark:text-slate-400">{subtitle}</p>}
     </div>
   </div>
 );
@@ -64,6 +65,7 @@ const CHART_LABELS = {
 
 const BenchmarkChart = () => {
   const { getAuthHeaders } = useAuth();
+  const { darkMode } = useTheme();
   const chartContainerRef = useRef(null);
   const chartInstanceRef = useRef(null);
   const seriesRefs = useRef({});
@@ -136,13 +138,13 @@ const BenchmarkChart = () => {
       const chart = createChart(container, {
         layout: {
           background: { color: 'transparent' },
-          textColor: '#9ca3af',
+          textColor: darkMode ? '#94a3b8' : '#9ca3af',
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: 11,
         },
         grid: {
-          vertLines: { color: 'rgba(229, 231, 235, 0.5)' },
-          horzLines: { color: 'rgba(229, 231, 235, 0.5)' },
+          vertLines: { color: darkMode ? 'rgba(51, 65, 85, 0.5)' : 'rgba(229, 231, 235, 0.5)' },
+          horzLines: { color: darkMode ? 'rgba(51, 65, 85, 0.5)' : 'rgba(229, 231, 235, 0.5)' },
         },
         rightPriceScale: {
           borderVisible: false,
@@ -257,7 +259,7 @@ const BenchmarkChart = () => {
       console.error('Chart render error:', err);
       setError(true);
     }
-  }, [chartData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chartData, darkMode]); // eslint-disable-line react-hooks/exhaustive-deps
   // Note: visibleLines changes are handled via seriesRefs (no chart rebuild needed)
 
   // Cleanup on unmount
@@ -271,7 +273,7 @@ const BenchmarkChart = () => {
   }, []);
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
         <SectionHeader
           icon={TrendingUp}
@@ -286,7 +288,7 @@ const BenchmarkChart = () => {
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                 range === opt.days
                   ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600'
               }`}
             >
               {opt.label}
@@ -301,56 +303,56 @@ const BenchmarkChart = () => {
           onClick={() => toggleLine('fund')}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition ${
             visibleLines.fund
-              ? 'border-emerald-200 bg-emerald-50'
-              : 'border-gray-200 bg-gray-50 opacity-50'
+              ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30'
+              : 'border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 opacity-50'
           }`}
         >
           <div className="w-3 h-3 rounded-full" style={{ background: CHART_COLORS.fund }} />
-          <span className={visibleLines.fund ? 'text-gray-700 font-medium' : 'text-gray-400 line-through'}>NAV Mountain</span>
+          <span className={visibleLines.fund ? 'text-gray-700 dark:text-slate-300 font-medium' : 'text-gray-400 dark:text-slate-500 line-through'}>NAV Mountain</span>
         </button>
         <button
           onClick={() => toggleLine('fundPct')}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition ${
             visibleLines.fundPct
-              ? 'border-emerald-200 bg-emerald-50'
-              : 'border-gray-200 bg-gray-50 opacity-50'
+              ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30'
+              : 'border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 opacity-50'
           }`}
         >
           <div className="w-3 h-0.5 rounded" style={{ background: CHART_COLORS.fund, width: 12 }} />
-          <span className={visibleLines.fundPct ? 'text-gray-700 font-medium' : 'text-gray-400 line-through'}>Fund %</span>
+          <span className={visibleLines.fundPct ? 'text-gray-700 dark:text-slate-300 font-medium' : 'text-gray-400 dark:text-slate-500 line-through'}>Fund %</span>
         </button>
         <button
           onClick={() => toggleLine('SPY')}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition ${
             visibleLines.SPY
-              ? 'border-blue-200 bg-blue-50'
-              : 'border-gray-200 bg-gray-50 opacity-50'
+              ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30'
+              : 'border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 opacity-50'
           }`}
         >
           <div className="w-3 h-0.5 rounded" style={{ background: CHART_COLORS.SPY, width: 12 }} />
-          <span className={visibleLines.SPY ? 'text-gray-700' : 'text-gray-400 line-through'}>S&P 500</span>
+          <span className={visibleLines.SPY ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500 line-through'}>S&P 500</span>
         </button>
         <button
           onClick={() => toggleLine('QQQ')}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition ${
             visibleLines.QQQ
-              ? 'border-purple-200 bg-purple-50'
-              : 'border-gray-200 bg-gray-50 opacity-50'
+              ? 'border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/30'
+              : 'border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 opacity-50'
           }`}
         >
           <div className="w-3 h-0.5 rounded" style={{ background: CHART_COLORS.QQQ, width: 12 }} />
-          <span className={visibleLines.QQQ ? 'text-gray-700' : 'text-gray-400 line-through'}>Nasdaq 100</span>
+          <span className={visibleLines.QQQ ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500 line-through'}>Nasdaq 100</span>
         </button>
         <button
           onClick={() => toggleLine('BTC-USD')}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition ${
             visibleLines['BTC-USD']
-              ? 'border-amber-200 bg-amber-50'
-              : 'border-gray-200 bg-gray-50 opacity-50'
+              ? 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30'
+              : 'border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 opacity-50'
           }`}
         >
           <div className="w-3 h-0.5 rounded" style={{ background: CHART_COLORS['BTC-USD'], width: 12 }} />
-          <span className={visibleLines['BTC-USD'] ? 'text-gray-700' : 'text-gray-400 line-through'}>Bitcoin</span>
+          <span className={visibleLines['BTC-USD'] ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500 line-through'}>Bitcoin</span>
         </button>
       </div>
 
@@ -359,12 +361,12 @@ const BenchmarkChart = () => {
           <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
         </div>
       ) : error ? (
-        <div className="h-[380px] flex flex-col items-center justify-center text-gray-400">
+        <div className="h-[380px] flex flex-col items-center justify-center text-gray-400 dark:text-slate-500">
           <AlertCircle className="w-8 h-8 mb-2" />
           <p className="text-sm">Chart unavailable</p>
           <button
             onClick={() => setRange(90)}
-            className="mt-2 text-xs text-emerald-600 hover:underline"
+            className="mt-2 text-xs text-emerald-600 dark:text-emerald-400 hover:underline"
           >
             Try 90-day range
           </button>
@@ -373,9 +375,9 @@ const BenchmarkChart = () => {
         <div ref={chartContainerRef} className="w-full" style={{ height: 380 }} />
       )}
 
-      <div className="flex items-start gap-2 mt-3 p-3 bg-gray-50 rounded-lg">
-        <Info className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
-        <div className="text-[11px] text-gray-500 leading-relaxed">
+      <div className="flex items-start gap-2 mt-3 p-3 bg-gray-50 dark:bg-slate-800 rounded-lg">
+        <Info className="w-4 h-4 text-gray-400 dark:text-slate-500 flex-shrink-0 mt-0.5" />
+        <div className="text-[11px] text-gray-500 dark:text-slate-400 leading-relaxed">
           <p>
             <strong>Left axis (green area):</strong> NAV per share — the actual price of one fund share over time.
             This is not your contributions — it shows how the fund's value per share has grown or declined.
@@ -407,19 +409,19 @@ const ComparisonCard = ({ ticker, label, fundReturn, benchReturn, outperformance
   const color = CHART_COLORS[ticker] || '#6b7280';
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 shadow-sm p-5 hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-          <span className="text-sm font-semibold text-gray-700">{label}</span>
-          <span className="text-xs text-gray-400 font-mono">{ticker}</span>
+          <span className="text-sm font-semibold text-gray-700 dark:text-slate-300">{label}</span>
+          <span className="text-xs text-gray-400 dark:text-slate-500 font-mono">{ticker}</span>
         </div>
         {winning ? (
-          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold uppercase tracking-wider">
+          <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded-full text-[10px] font-bold uppercase tracking-wider">
             Beating
           </span>
         ) : (
-          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-bold uppercase tracking-wider">
+          <span className="px-2 py-0.5 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full text-[10px] font-bold uppercase tracking-wider">
             Trailing
           </span>
         )}
@@ -429,12 +431,12 @@ const ComparisonCard = ({ ticker, label, fundReturn, benchReturn, outperformance
       <div className="space-y-2 mb-3">
         <div>
           <div className="flex justify-between text-xs mb-0.5">
-            <span className="text-gray-500">Tovito</span>
-            <span className={`font-semibold ${fundReturn >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            <span className="text-gray-500 dark:text-slate-400">Tovito</span>
+            <span className={`font-semibold ${fundReturn >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
               {formatPct(fundReturn)}
             </span>
           </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-2 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{
@@ -446,12 +448,12 @@ const ComparisonCard = ({ ticker, label, fundReturn, benchReturn, outperformance
         </div>
         <div>
           <div className="flex justify-between text-xs mb-0.5">
-            <span className="text-gray-500">{label}</span>
-            <span className={`font-semibold ${benchReturn >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            <span className="text-gray-500 dark:text-slate-400">{label}</span>
+            <span className={`font-semibold ${benchReturn >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
               {formatPct(benchReturn)}
             </span>
           </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-2 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{
@@ -466,12 +468,12 @@ const ComparisonCard = ({ ticker, label, fundReturn, benchReturn, outperformance
 
       {/* Outperformance callout */}
       <div className={`text-center py-2 rounded-lg ${
-        winning ? 'bg-emerald-50' : 'bg-amber-50'
+        winning ? 'bg-emerald-50 dark:bg-emerald-900/30' : 'bg-amber-50 dark:bg-amber-900/30'
       }`}>
-        <span className={`text-lg font-bold ${winning ? 'text-emerald-700' : 'text-amber-700'}`}>
+        <span className={`text-lg font-bold ${winning ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
           {winning ? '+' : ''}{outperformance.toFixed(2)}%
         </span>
-        <p className={`text-[10px] ${winning ? 'text-emerald-600' : 'text-amber-600'}`}>
+        <p className={`text-[10px] ${winning ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
           {winning ? 'ahead' : 'behind'}
         </p>
       </div>
@@ -524,8 +526,8 @@ const BenchmarkComparison = () => {
           icon={Target}
           title="How We Compare"
           subtitle="Tovito Trader vs major benchmarks"
-          iconColor="text-blue-600"
-          iconBg="bg-blue-50"
+          iconColor="text-blue-600 dark:text-blue-400"
+          iconBg="bg-blue-50 dark:bg-blue-900/30"
         />
         <div className="flex gap-1 flex-shrink-0">
           {COMPARISON_RANGES.map(opt => (
@@ -535,7 +537,7 @@ const BenchmarkComparison = () => {
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                 range === opt.days
                   ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600'
               }`}
             >
               {opt.label}
@@ -562,7 +564,7 @@ const BenchmarkComparison = () => {
           ))}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400">
+        <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-8 text-center text-gray-400 dark:text-slate-500">
           <p className="text-sm">Not enough data for comparison</p>
         </div>
       )}
@@ -575,7 +577,7 @@ const BenchmarkComparison = () => {
 // ============================================================
 
 const getMonthColor = (returnPct) => {
-  if (returnPct === null || returnPct === undefined) return 'bg-gray-50 text-gray-400';
+  if (returnPct === null || returnPct === undefined) return 'bg-gray-50 dark:bg-slate-800 text-gray-400 dark:text-slate-500';
   if (returnPct >= 5) return 'bg-emerald-500 text-white';
   if (returnPct >= 3) return 'bg-emerald-400 text-white';
   if (returnPct >= 1) return 'bg-emerald-300 text-emerald-900';
@@ -607,13 +609,13 @@ const MonthlyHeatmap = () => {
   const years = Object.keys(yearGrid).sort();
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
       <SectionHeader
         icon={Calendar}
         title="Monthly Returns"
         subtitle="Performance by month at a glance"
-        iconColor="text-purple-600"
-        iconBg="bg-purple-50"
+        iconColor="text-purple-600 dark:text-purple-400"
+        iconBg="bg-purple-50 dark:bg-purple-900/30"
       />
 
       {loading ? (
@@ -621,7 +623,7 @@ const MonthlyHeatmap = () => {
           <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
         </div>
       ) : !data?.months?.length ? (
-        <div className="text-center py-8 text-gray-400 text-sm">No monthly data available</div>
+        <div className="text-center py-8 text-gray-400 dark:text-slate-500 text-sm">No monthly data available</div>
       ) : (
         <>
           {/* Heatmap grid */}
@@ -629,11 +631,11 @@ const MonthlyHeatmap = () => {
             <table className="w-full min-w-[600px]">
               <thead>
                 <tr>
-                  <th className="text-xs text-gray-400 font-medium text-left py-2 w-16" />
+                  <th className="text-xs text-gray-400 dark:text-slate-500 font-medium text-left py-2 w-16" />
                   {MONTH_NAMES.map(m => (
-                    <th key={m} className="text-xs text-gray-400 font-medium text-center py-2 px-1">{m}</th>
+                    <th key={m} className="text-xs text-gray-400 dark:text-slate-500 font-medium text-center py-2 px-1">{m}</th>
                   ))}
-                  <th className="text-xs text-gray-400 font-medium text-center py-2 px-2">Year</th>
+                  <th className="text-xs text-gray-400 dark:text-slate-500 font-medium text-center py-2 px-2">Year</th>
                 </tr>
               </thead>
               <tbody>
@@ -653,7 +655,7 @@ const MonthlyHeatmap = () => {
 
                   return (
                     <tr key={year}>
-                      <td className="text-xs font-semibold text-gray-600 py-1">{year}</td>
+                      <td className="text-xs font-semibold text-gray-600 dark:text-slate-400 py-1">{year}</td>
                       {Array.from({ length: 12 }, (_, i) => {
                         const monthData = yearGrid[year]?.[i + 1];
                         const ret = monthData?.return_pct;
@@ -667,7 +669,7 @@ const MonthlyHeatmap = () => {
                                 {formatPctShort(ret)}
                               </div>
                             ) : (
-                              <div className="rounded-lg py-2.5 px-1 text-xs text-gray-300 bg-gray-50">
+                              <div className="rounded-lg py-2.5 px-1 text-xs text-gray-300 dark:text-slate-600 bg-gray-50 dark:bg-slate-800">
                                 --
                               </div>
                             )}
@@ -687,7 +689,7 @@ const MonthlyHeatmap = () => {
           </div>
 
           {/* Color legend */}
-          <div className="flex items-center justify-center gap-1 mt-4 text-[10px] text-gray-400">
+          <div className="flex items-center justify-center gap-1 mt-4 text-[10px] text-gray-400 dark:text-slate-500">
             <span>Loss</span>
             <div className="flex gap-0.5">
               <div className="w-5 h-3 rounded bg-red-500" />
@@ -707,12 +709,12 @@ const MonthlyHeatmap = () => {
             <div className="flex flex-wrap gap-4 justify-center mt-3">
               <span className="inline-flex items-center gap-1 text-xs">
                 <Award className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-gray-500">Best month:</span>
-                <span className="font-bold text-emerald-600">{data.best_month} ({formatPct(data.best_month_return)})</span>
+                <span className="text-gray-500 dark:text-slate-400">Best month:</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">{data.best_month} ({formatPct(data.best_month_return)})</span>
               </span>
               <span className="inline-flex items-center gap-1 text-xs">
-                <span className="text-gray-500">Toughest month:</span>
-                <span className="font-bold text-red-600">{data.worst_month} ({formatPct(data.worst_month_return)})</span>
+                <span className="text-gray-500 dark:text-slate-400">Toughest month:</span>
+                <span className="font-bold text-red-600 dark:text-red-400">{data.worst_month} ({formatPct(data.worst_month_return)})</span>
               </span>
             </div>
           )}
@@ -732,8 +734,8 @@ const RollingReturnsTooltip = ({ active, payload, label }) => {
   if (!d) return null;
 
   return (
-    <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-700 mb-1">{d.date}</p>
+    <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg px-3 py-2 text-xs">
+      <p className="font-semibold text-gray-700 dark:text-slate-300 mb-1">{d.date}</p>
       {d.rolling_30d != null && (
         <div className="flex justify-between gap-4">
           <span className="text-blue-500 font-medium">30-Day</span>
@@ -755,7 +757,11 @@ const RollingReturnsTooltip = ({ active, payload, label }) => {
 };
 
 const RollingReturnsChart = () => {
+  const { darkMode } = useTheme();
   const { data, loading, error } = useApi('/analysis/rolling-returns?days=365');
+
+  const axisColor = darkMode ? '#94a3b8' : '#9ca3af';
+  const gridColor = darkMode ? '#334155' : '#e5e7eb';
 
   // Downsample for performance (show every Nth point if >200 points)
   const chartData = useMemo(() => {
@@ -772,13 +778,13 @@ const RollingReturnsChart = () => {
   }, [data]);
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700/50 p-6 mb-6">
       <SectionHeader
         icon={Activity}
         title="Rolling Returns"
         subtitle="How returns look over sliding 30-day and 90-day windows"
-        iconColor="text-indigo-600"
-        iconBg="bg-indigo-50"
+        iconColor="text-indigo-600 dark:text-indigo-400"
+        iconBg="bg-indigo-50 dark:bg-indigo-900/30"
       />
 
       {loading ? (
@@ -786,18 +792,18 @@ const RollingReturnsChart = () => {
           <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
         </div>
       ) : chartData.length < 2 ? (
-        <div className="h-[260px] flex items-center justify-center text-gray-400 text-sm">
+        <div className="h-[260px] flex items-center justify-center text-gray-400 dark:text-slate-500 text-sm">
           Not enough data for rolling returns
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={260}>
           <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 10, fill: '#9ca3af' }}
+              tick={{ fontSize: 10, fill: axisColor }}
               tickLine={false}
-              axisLine={{ stroke: '#e5e7eb' }}
+              axisLine={{ stroke: gridColor }}
               tickFormatter={(v) => {
                 const d = new Date(v + 'T00:00:00');
                 return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -805,7 +811,7 @@ const RollingReturnsChart = () => {
               minTickGap={50}
             />
             <YAxis
-              tick={{ fontSize: 10, fill: '#9ca3af' }}
+              tick={{ fontSize: 10, fill: axisColor }}
               tickLine={false}
               axisLine={false}
               tickFormatter={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`}
@@ -839,11 +845,11 @@ const RollingReturnsChart = () => {
       <div className="flex items-center justify-center gap-6 mt-2 text-xs">
         <div className="flex items-center gap-1.5">
           <div className="w-4 h-0.5 rounded bg-blue-500" />
-          <span className="text-gray-500">30-Day Rolling</span>
+          <span className="text-gray-500 dark:text-slate-400">30-Day Rolling</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-4 h-0.5 rounded bg-purple-500" />
-          <span className="text-gray-500">90-Day Rolling</span>
+          <span className="text-gray-500 dark:text-slate-400">90-Day Rolling</span>
         </div>
       </div>
     </div>
@@ -860,7 +866,7 @@ const InfoTooltip = ({ text }) => {
   return (
     <span className="relative inline-block">
       <Info
-        className="w-3.5 h-3.5 text-gray-300 hover:text-gray-500 cursor-help transition"
+        className="w-3.5 h-3.5 text-gray-300 dark:text-slate-600 hover:text-gray-500 dark:hover:text-slate-400 cursor-help transition"
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
         onClick={() => setShow(!show)}
@@ -882,8 +888,8 @@ const RISK_METRIC_CONFIGS = [
     description: 'How much the fund has grown overall since inception.',
     icon: TrendingUp,
     format: (v) => formatPct(v),
-    color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-600',
-    iconColor: (v) => v >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600',
+    color: (v) => v >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
+    iconColor: (v) => v >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400',
   },
   {
     key: 'sharpe_ratio',
@@ -891,8 +897,8 @@ const RISK_METRIC_CONFIGS = [
     description: 'Higher is better. Measures how much return we get for each unit of risk taken. Above 1.0 is good, above 2.0 is excellent.',
     icon: Award,
     format: (v) => v != null ? v.toFixed(2) : 'N/A',
-    color: (v) => v >= 2 ? 'text-emerald-600' : v >= 1 ? 'text-blue-600' : v >= 0 ? 'text-amber-600' : 'text-red-600',
-    iconColor: (v) => v >= 1 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600',
+    color: (v) => v >= 2 ? 'text-emerald-600 dark:text-emerald-400' : v >= 1 ? 'text-blue-600 dark:text-blue-400' : v >= 0 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400',
+    iconColor: (v) => v >= 1 ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
   },
   {
     key: 'max_drawdown_pct',
@@ -900,8 +906,8 @@ const RISK_METRIC_CONFIGS = [
     description: 'The biggest peak-to-trough drop in fund value. Smaller is better. Shows the worst-case scenario so far.',
     icon: Shield,
     format: (v) => v != null ? `${v.toFixed(2)}%` : '--',
-    color: (v) => Math.abs(v) <= 3 ? 'text-emerald-600' : Math.abs(v) <= 10 ? 'text-amber-600' : 'text-red-600',
-    iconColor: () => 'bg-blue-50 text-blue-600',
+    color: (v) => Math.abs(v) <= 3 ? 'text-emerald-600 dark:text-emerald-400' : Math.abs(v) <= 10 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400',
+    iconColor: () => 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
   },
   {
     key: 'annualized_volatility_pct',
@@ -909,8 +915,8 @@ const RISK_METRIC_CONFIGS = [
     description: 'How much the fund value bounces around day to day. Lower means smoother returns.',
     icon: Activity,
     format: (v) => v != null ? `${v.toFixed(1)}%` : '--',
-    color: (v) => v <= 10 ? 'text-emerald-600' : v <= 20 ? 'text-amber-600' : 'text-red-600',
-    iconColor: () => 'bg-purple-50 text-purple-600',
+    color: (v) => v <= 10 ? 'text-emerald-600 dark:text-emerald-400' : v <= 20 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400',
+    iconColor: () => 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400',
   },
   {
     key: 'win_rate_pct',
@@ -918,8 +924,8 @@ const RISK_METRIC_CONFIGS = [
     description: 'Percentage of trading days where the fund went up. Above 50% means more good days than bad.',
     icon: Zap,
     format: (v) => v != null ? `${v.toFixed(0)}%` : '--',
-    color: (v) => v >= 55 ? 'text-emerald-600' : v >= 45 ? 'text-blue-600' : 'text-red-600',
-    iconColor: (v) => v >= 50 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600',
+    color: (v) => v >= 55 ? 'text-emerald-600 dark:text-emerald-400' : v >= 45 ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400',
+    iconColor: (v) => v >= 50 ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
   },
   {
     key: 'best_day_pct',
@@ -927,8 +933,8 @@ const RISK_METRIC_CONFIGS = [
     description: 'The single best trading day in the period. Shows peak upside potential.',
     icon: ArrowUpRight,
     format: (v) => formatPct(v),
-    color: () => 'text-emerald-600',
-    iconColor: () => 'bg-emerald-50 text-emerald-600',
+    color: () => 'text-emerald-600 dark:text-emerald-400',
+    iconColor: () => 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400',
     subKey: 'best_day_date',
   },
   {
@@ -937,8 +943,8 @@ const RISK_METRIC_CONFIGS = [
     description: 'The single worst trading day. Shows the largest single-day decline.',
     icon: ArrowDownRight,
     format: (v) => formatPct(v),
-    color: () => 'text-red-600',
-    iconColor: () => 'bg-red-50 text-red-600',
+    color: () => 'text-red-600 dark:text-red-400',
+    iconColor: () => 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400',
     subKey: 'worst_day_date',
   },
   {
@@ -947,8 +953,8 @@ const RISK_METRIC_CONFIGS = [
     description: 'If the current performance continued for a full year, this is the return you would see. Annualized from actual trading days.',
     icon: BarChart3,
     format: (v) => formatPct(v),
-    color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-600',
-    iconColor: (v) => v >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600',
+    color: (v) => v >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
+    iconColor: (v) => v >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400',
   },
 ];
 
@@ -958,7 +964,7 @@ const RiskMetricCard = ({ config, data }) => {
   const subDate = config.subKey ? data?.[config.subKey] : null;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 shadow-sm p-4 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between mb-2">
         <div className={`p-2 rounded-lg ${config.iconColor(value)}`}>
           <Icon className="w-4 h-4" />
@@ -968,9 +974,9 @@ const RiskMetricCard = ({ config, data }) => {
       <p className={`text-2xl font-bold ${config.color(value)} mt-1`}>
         {config.format(value)}
       </p>
-      <p className="text-xs text-gray-500 mt-1 font-medium">{config.label}</p>
+      <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 font-medium">{config.label}</p>
       {subDate && (
-        <p className="text-[10px] text-gray-400 mt-0.5">{subDate}</p>
+        <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">{subDate}</p>
       )}
     </div>
   );
@@ -985,8 +991,8 @@ const RiskRewardSnapshot = () => {
         icon={Shield}
         title="Risk & Reward Snapshot"
         subtitle="Key numbers explained in plain English"
-        iconColor="text-amber-600"
-        iconBg="bg-amber-50"
+        iconColor="text-amber-600 dark:text-amber-400"
+        iconBg="bg-amber-50 dark:bg-amber-900/30"
       />
 
       {loading ? (
@@ -994,7 +1000,7 @@ const RiskRewardSnapshot = () => {
           <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
         </div>
       ) : !data ? (
-        <div className="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400 text-sm">
+        <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-8 text-center text-gray-400 dark:text-slate-500 text-sm">
           Risk metrics unavailable
         </div>
       ) : (
@@ -1006,7 +1012,7 @@ const RiskRewardSnapshot = () => {
           </div>
 
           {/* Period footer */}
-          <p className="text-[10px] text-gray-400 mt-3 text-center">
+          <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-3 text-center">
             Based on {data.trading_days} trading days ({data.period_start} to {data.period_end})
           </p>
         </>
@@ -1024,8 +1030,8 @@ const PerformancePage = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-20 lg:pb-8">
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Performance</h2>
-        <p className="text-gray-500 text-sm">How your money is growing and how we stack up</p>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Performance</h2>
+        <p className="text-gray-500 dark:text-slate-400 text-sm">How your money is growing and how we stack up</p>
       </div>
 
       {/* 1. Interactive Benchmark Chart */}

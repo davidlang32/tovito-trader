@@ -29,7 +29,7 @@ const Layout = () => {
   const initial = (user?.name || 'I')[0].toUpperCase();
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-950 flex">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
@@ -146,10 +146,10 @@ const Layout = () => {
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile header */}
-        <header className="lg:hidden bg-white border-b border-gray-200 h-14 flex items-center px-4 gap-3">
+        <header className="lg:hidden bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 h-14 flex items-center px-4 gap-3">
           <button
             onClick={() => setMobileOpen(true)}
-            className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+            className="p-2 text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -157,7 +157,7 @@ const Layout = () => {
             <div className="w-7 h-7 bg-emerald-500 rounded-lg flex items-center justify-center">
               <TrendingUp className="w-4 h-4 text-white" />
             </div>
-            <span className="font-bold text-gray-900 text-sm">Tovito Trader</span>
+            <span className="font-bold text-gray-900 dark:text-slate-100 text-sm">Tovito Trader</span>
           </div>
         </header>
 
@@ -167,9 +167,9 @@ const Layout = () => {
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-gray-200 bg-white">
+        <footer className="border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
           <div className="px-6 py-4">
-            <p className="text-center text-xs text-gray-400">
+            <p className="text-center text-xs text-gray-400 dark:text-slate-500">
               &copy; 2026 Tovito Trader. All data as of market close.
             </p>
           </div>
@@ -177,7 +177,7 @@ const Layout = () => {
       </div>
 
       {/* Mobile bottom tab bar */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-700 z-30">
         <div className="flex justify-around py-2">
           {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
             <NavLink
@@ -186,7 +186,7 @@ const Layout = () => {
               end={path === '/dashboard'}
               className={({ isActive }) =>
                 `flex flex-col items-center gap-0.5 px-2 py-1 text-[10px] font-medium transition-colors
-                ${isActive ? 'text-emerald-600' : 'text-gray-400'}`
+                ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-slate-500'}`
               }
             >
               <Icon className="w-5 h-5" />
