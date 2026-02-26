@@ -36,6 +36,9 @@ apps/investor_portal/frontend/investor_portal/public/tutorials/
 # Generated mind map outputs
 data/mindmap/
 
+# DevOps automation data (reports, snapshots)
+data/devops/
+
 # Analytics databases
 analytics/*.db
 

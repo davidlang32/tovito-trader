@@ -11,6 +11,7 @@ Usage:
     print(svc.get_overall_health_score())
 """
 
+import json
 import os
 import sqlite3
 from datetime import datetime, timedelta
@@ -602,7 +603,249 @@ class HealthCheckService:
         return tasks
 
     # ------------------------------------------------------------------
-    # 10. Overall Health Score
+    # 10. Backup Status
+    # ------------------------------------------------------------------
+
+    def get_backup_status(self) -> dict:
+        """Check backup freshness and rotation status.
+
+        Scans ``data/backups/`` for both simple ``.db`` backups and
+        ``full_*`` directories.  Warns if no backup exists within the
+        last 7 days.
+
+        Returns:
+            dict with last_backup_date, backup_count, total_size_mb,
+            oldest_backup_date, status ('ok'|'stale'|'missing')
+        """
+        backup_dir = _PROJECT_DIR / 'data' / 'backups'
+        if not backup_dir.exists():
+            return {
+                'last_backup_date': None,
+                'backup_count': 0,
+                'total_size_mb': 0.0,
+                'oldest_backup_date': None,
+                'status': 'missing',
+            }
+
+        backups = []
+        total_size = 0
+
+        # Simple .db backups
+        for f in backup_dir.glob('tovito_backup_*.db'):
+            try:
+                size = f.stat().st_size
+                mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                backups.append(mtime)
+                total_size += size
+            except Exception:
+                continue
+
+        # Full backup directories
+        for d in backup_dir.glob('full_*'):
+            if d.is_dir():
+                try:
+                    mtime = datetime.fromtimestamp(d.stat().st_mtime)
+                    backups.append(mtime)
+                    for f in d.rglob('*'):
+                        if f.is_file():
+                            total_size += f.stat().st_size
+                except Exception:
+                    continue
+
+        if not backups:
+            return {
+                'last_backup_date': None,
+                'backup_count': 0,
+                'total_size_mb': 0.0,
+                'oldest_backup_date': None,
+                'status': 'missing',
+            }
+
+        backups.sort()
+        newest = backups[-1]
+        oldest = backups[0]
+        age_hours = (datetime.now() - newest).total_seconds() / 3600
+        stale_threshold = 7 * 24  # 7 days
+
+        return {
+            'last_backup_date': newest.strftime('%Y-%m-%d %H:%M'),
+            'backup_count': len(backups),
+            'total_size_mb': round(total_size / (1024 * 1024), 2),
+            'oldest_backup_date': oldest.strftime('%Y-%m-%d %H:%M'),
+            'status': 'ok' if age_hours <= stale_threshold else 'stale',
+        }
+
+    # ------------------------------------------------------------------
+    # 11. Dependency Status
+    # ------------------------------------------------------------------
+
+    def get_dependency_status(self) -> dict:
+        """Check most recent dependency report for outdated packages.
+
+        Reads the latest JSON from ``data/devops/dependency_reports/``.
+
+        Returns:
+            dict with last_check_date, pip_outdated, npm_outdated,
+            major_updates, report_path, status ('ok'|'warning'|'stale')
+        """
+        report_dir = _PROJECT_DIR / 'data' / 'devops' / 'dependency_reports'
+        if not report_dir.exists():
+            return {
+                'last_check_date': None,
+                'pip_outdated': 0,
+                'npm_outdated': 0,
+                'major_updates': 0,
+                'report_path': None,
+                'status': 'stale',
+            }
+
+        # Find most recent report
+        reports = sorted(report_dir.glob('deps_*.json'), reverse=True)
+        if not reports:
+            return {
+                'last_check_date': None,
+                'pip_outdated': 0,
+                'npm_outdated': 0,
+                'major_updates': 0,
+                'report_path': None,
+                'status': 'stale',
+            }
+
+        latest = reports[0]
+        try:
+            with open(latest, 'r') as f:
+                data = json.load(f)
+        except Exception:
+            return {
+                'last_check_date': None,
+                'pip_outdated': 0,
+                'npm_outdated': 0,
+                'major_updates': 0,
+                'report_path': str(latest),
+                'status': 'stale',
+            }
+
+        # Check report age
+        report_age_hours = self._file_age_hours(latest)
+        stale_threshold = 10 * 24  # 10 days (weekly check + buffer)
+
+        pip_outdated = data.get('pip_outdated_count', 0)
+        npm_outdated = data.get('npm_outdated_count', 0)
+        major_updates = data.get('pip_major', 0) + data.get('npm_major', 0)
+
+        if report_age_hours and report_age_hours > stale_threshold:
+            status = 'stale'
+        elif major_updates > 0:
+            status = 'warning'
+        else:
+            status = 'ok'
+
+        return {
+            'last_check_date': data.get('timestamp', None),
+            'pip_outdated': pip_outdated,
+            'npm_outdated': npm_outdated,
+            'major_updates': major_updates,
+            'report_path': str(latest),
+            'status': status,
+        }
+
+    # ------------------------------------------------------------------
+    # 12. Synthetic Monitor Status
+    # ------------------------------------------------------------------
+
+    def get_synthetic_monitor_status(self) -> dict:
+        """Check most recent synthetic monitor results.
+
+        Reads ``logs/synthetic_monitor.log`` for the latest run timestamp
+        and pass/fail status.
+
+        Returns:
+            dict with last_run, checks_passed, checks_failed,
+            status ('ok'|'stale'|'failed')
+        """
+        log_file = _PROJECT_DIR / 'logs' / 'synthetic_monitor.log'
+        if not log_file.exists():
+            return {
+                'last_run': None,
+                'checks_passed': 0,
+                'checks_failed': 0,
+                'status': 'stale',
+            }
+
+        # Read last line of log for latest result
+        try:
+            with open(log_file, 'r') as f:
+                lines = f.readlines()
+            if not lines:
+                return {
+                    'last_run': None,
+                    'checks_passed': 0,
+                    'checks_failed': 0,
+                    'status': 'stale',
+                }
+
+            # Parse last non-empty line
+            last_line = ''
+            for line in reversed(lines):
+                if line.strip():
+                    last_line = line.strip()
+                    break
+
+            if not last_line:
+                return {
+                    'last_run': None,
+                    'checks_passed': 0,
+                    'checks_failed': 0,
+                    'status': 'stale',
+                }
+
+            # Expected format: [YYYY-MM-DD HH:MM:SS] [PASS/FAIL] N/M checks passed (Xms)
+            parts = last_line.split(']')
+            timestamp_str = parts[0].strip('[') if parts else None
+            is_pass = '[PASS]' in last_line
+            is_fail = '[FAIL]' in last_line
+
+            # Extract pass/fail counts if possible
+            checks_passed = 0
+            checks_failed = 0
+            try:
+                import re
+                match = re.search(r'(\d+)/(\d+)\s+checks\s+passed', last_line)
+                if match:
+                    checks_passed = int(match.group(1))
+                    total = int(match.group(2))
+                    checks_failed = total - checks_passed
+            except Exception:
+                pass
+
+            # Check staleness
+            log_age = self._file_age_hours(log_file)
+            stale_threshold = 6  # 6 hours (runs every 4 hours + buffer)
+
+            if log_age and log_age > stale_threshold:
+                status = 'stale'
+            elif is_fail:
+                status = 'failed'
+            else:
+                status = 'ok'
+
+            return {
+                'last_run': timestamp_str,
+                'checks_passed': checks_passed,
+                'checks_failed': checks_failed,
+                'status': status,
+            }
+
+        except Exception:
+            return {
+                'last_run': None,
+                'checks_passed': 0,
+                'checks_failed': 0,
+                'status': 'stale',
+            }
+
+    # ------------------------------------------------------------------
+    # 13. Overall Health Score
     # ------------------------------------------------------------------
 
     def get_overall_health_score(self) -> dict:
@@ -1033,6 +1276,72 @@ def get_remediation(source: str, status: str,
                 'command': 'python scripts/utilities/backup_database.py',
                 'wait_for_next_cycle': False,
                 'log_file': None,
+            }
+
+    # ==============================================================
+    # BACKUPS
+    # ==============================================================
+    if source == 'backups':
+        if status == 'missing':
+            return {
+                'summary': 'No database backups found.',
+                'action': 'Create a backup immediately.',
+                'command': 'python scripts/utilities/backup_database.py',
+                'wait_for_next_cycle': False,
+                'log_file': None,
+            }
+        if status == 'stale':
+            return {
+                'summary': 'No backup created in the last 7 days.',
+                'action': 'Create a fresh backup. Consider scheduling regular backups.',
+                'command': 'python scripts/utilities/backup_database.py --full',
+                'wait_for_next_cycle': False,
+                'log_file': None,
+            }
+
+    # ==============================================================
+    # DEPENDENCIES
+    # ==============================================================
+    if source == 'dependencies':
+        if status == 'stale':
+            return {
+                'summary': 'Dependency check has not run recently.',
+                'action': 'Run the dependency monitor to check for outdated packages.',
+                'command': 'python scripts/devops/dependency_monitor.py',
+                'wait_for_next_cycle': False,
+                'log_file': None,
+            }
+        if status == 'warning':
+            return {
+                'summary': 'Major dependency updates are available.',
+                'action': ('Review the dependency report and run the upgrade script '
+                           'in dev mode to test compatibility.'),
+                'command': 'python scripts/devops/upgrade_packages.py --dry-run',
+                'wait_for_next_cycle': False,
+                'log_file': None,
+            }
+
+    # ==============================================================
+    # SYNTHETIC MONITOR
+    # ==============================================================
+    if source == 'synthetic_monitor':
+        if status == 'stale':
+            return {
+                'summary': 'Synthetic monitoring has not run recently.',
+                'action': ('Check that the synthetic monitor task is enabled on '
+                           'OPS-AUTOMATION, or run it manually.'),
+                'command': 'python scripts/devops/synthetic_monitor.py',
+                'wait_for_next_cycle': False,
+                'log_file': 'logs/synthetic_monitor.log',
+            }
+        if status == 'failed':
+            return {
+                'summary': 'Synthetic monitoring detected production issues.',
+                'action': ('Check the synthetic monitor log for details on which '
+                           'checks failed. Verify the production API and frontend.'),
+                'command': 'python scripts/devops/synthetic_monitor.py --json',
+                'wait_for_next_cycle': False,
+                'log_file': 'logs/synthetic_monitor.log',
             }
 
     # ==============================================================

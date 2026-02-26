@@ -41,7 +41,10 @@ C:\tovito-trader\
 ├── config/                  # Environment configs (.env.development, .env.production)
 ├── data/                    # Production database, backups, exports, reports
 │   ├── tovito.db            # PRIMARY DATABASE - handle with extreme care
-│   ├── backups/             # Timestamped database backups
+│   ├── backups/             # Timestamped database backups (simple .db + full_* directories)
+│   ├── devops/              # DevOps automation data (gitignored)
+│   │   ├── dependency_reports/  # JSON dependency check reports
+│   │   └── upgrade_snapshots/   # Pre-upgrade requirements file snapshots
 │   ├── exports/             # Excel/CSV exports
 │   └── reports/             # Generated PDF statements
 ├── docs/                    # All documentation
@@ -69,6 +72,7 @@ C:\tovito-trader\
 │   │   ├── launching/       # Application launch tutorial scripts (4 tutorials)
 │   │   ├── templates/       # Jinja2 HTML guide template
 │   │   └── generate_all.py  # Master generation script
+│   ├── devops/              # DevOps automation (dependency monitor, upgrade automation, synthetic monitor)
 │   ├── utilities/           # Backups, reversals, log viewing, GitHub sync, weekly restart
 │   └── validation/          # Health checks, reconciliation, comprehensive validation
 ├── src/                     # Core library modules
@@ -193,7 +197,7 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
 5. **Ops Dashboard in Fund Manager App** — The health check data layer (`src/monitoring/health_checks.py`) is designed UI-agnostic so it can be integrated into the CustomTkinter fund manager dashboard alongside the current Streamlit standalone version.
 6. **Investor Portal Frontend Enhancements** — Daily P&L cards, contribution/withdrawal request forms, profile management pages, referral code sharing. React Router for multi-page navigation.
 7. **Admin Portal** — Separate local-only React app (`apps/admin_portal/`) for the fund manager to view all investor data, troubleshoot what each investor sees, and manage prospects. Never deployed publicly — runs only on localhost. Option A architecture: completely separate from investor portal with its own frontend and potentially its own API routes.
-8. ~~**PII Security Hardening (HIGH PRIORITY)**~~ — **PARTIALLY DONE** (Phase 19). Completed: encryption key rotation framework (versioned ciphertext, multi-key support, `rotate_encryption_key.py`), field-level PII access logging (`pii_access_log` table + `log_pii_access()`), `investor_profiles` audit triggers, security headers middleware, startup encryption validation. Remaining: data retention policies, secure backup procedures for encrypted fields, ENCRYPTION_KEY disaster recovery plan, SOC 2 / regulatory compliance readiness assessment, network-level protections if PII is ever served via API, penetration testing.
+8. ~~**PII Security Hardening (HIGH PRIORITY)**~~ — **PARTIALLY DONE** (Phase 19 + Phase 20C). Completed: encryption key rotation framework (versioned ciphertext, multi-key support, `rotate_encryption_key.py`), field-level PII access logging (`pii_access_log` table + `log_pii_access()`), `investor_profiles` audit triggers, security headers middleware, startup encryption validation, secure backup of `.env` and encryption keys (Phase 20C full backup with PBKDF2 encryption). Remaining: data retention policies, SOC 2 / regulatory compliance readiness assessment, network-level protections if PII is ever served via API, penetration testing.
 9. **Primary Laptop Failover** — Long-term goal to enable OPS-AUTOMATION as a warm standby for OPS-PRIMARY. Would require secure database replication strategy and runbook for failover activation. Not urgent — focus on automation split first.
 10. ~~**Portal Dark Theme Redesign**~~ — **DONE** (Phase 18). All authenticated portal pages now have full `dark:` variant coverage.
 
@@ -299,6 +303,13 @@ The fund migrated from Tradier to TastyTrade in early 2026. Architecture uses a 
     - **Security headers middleware**: Six headers added to all API responses — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Cache-Control: no-store`. Skips HSTS (Cloudflare handles TLS) and CSP (API-only, no HTML).
     - **Key rotation script**: New `scripts/setup/rotate_encryption_key.py` — decrypts all `investor_profiles` PII fields with current key, re-encrypts with new key (v1: format), validates round-trip for every field, commits in single transaction. Supports `--dry-run`, `--new-key KEY`, `--skip-backup`. Creates database backup before starting. Prints post-rotation instructions (update ENCRYPTION_KEY, add old key to ENCRYPTION_LEGACY_KEYS).
     - **Test suite**: New `tests/test_pii_security.py` (47 tests) covering: versioned ciphertext format, backward compatibility with unversioned tokens, multi-key decryption, key rotation end-to-end, `is_encrypted()` for both formats, PII access log writes, audit triggers, security headers on all responses, startup validation, `reset_encryptor()`.
+23. **DevOps Automation Pipeline** (Phase 20) — Four-part automation suite reducing manual maintenance overhead and catching issues proactively. 878 tests.
+    - **Phase 20C — Backup & Restore Enhancement**: Enhanced `scripts/utilities/backup_database.py` with `create_full_backup(passphrase)` (backs up `tovito.db` + `.env` + `.tastytrade_session` into `data/backups/full_YYYY-MM-DD_HHMMSS/` with `manifest.json` containing SHA256 checksums; sensitive files encrypted with Fernet using PBKDF2-derived key from user passphrase), `verify_backup(path)` (validates checksums + `PRAGMA integrity_check`), `rotate_backups(keep_count, keep_days)` (removes old backups, always preserves oldest baseline). New `scripts/utilities/restore_database.py` with `restore_database()` (creates safety backup first), `restore_env()` (decrypts `.env` with masked diff), `list_available_backups()`. Health check integration: `get_backup_status()` warns if no backup in >7 days.
+    - **Phase 20A — Dependency Monitor**: New `scripts/devops/dependency_monitor.py` with `DependencyMonitor` class — runs `pip list --outdated --format=json` cross-referenced with requirements files, `npm outdated --json` in frontend dir, classifies upgrades as major/minor/patch via `packaging.version`. Generates JSON reports to `data/devops/dependency_reports/`, sends Discord (gold embed) + email notifications when outdated packages found. CLI: `--no-notify`, `--pip-only`, `--npm-only`, `--json`. New `run_dependency_check.bat` for Task Scheduler (weekly Monday 9 AM). Health check: `get_dependency_status()` flags major updates.
+    - **Phase 20B — Upgrade Automation**: New `scripts/devops/upgrade_packages.py` with `PackageUpgrader` class — safety guard refuses to run if `TOVITO_ENV=production`. Pre-upgrade backup (DB + requirements snapshot to `data/devops/upgrade_snapshots/`), pip/npm upgrade with major/minor separation, `pytest` test gate, requirements file update, rollback from snapshot. Never auto-deploys — prints promotion commands on success. CLI: `--all-minor`, `--package NAME`, `--npm`, `--dry-run`, `--rollback SNAPSHOT`, `--list-snapshots`.
+    - **Phase 20D — Synthetic Monitoring**: New `scripts/devops/synthetic_monitor.py` with `SyntheticMonitor` class — 7 HTTP-based production checks: health endpoint, public teaser stats, login flow (synthetic account), NAV freshness (within 3 calendar days), authenticated endpoints, frontend accessibility, admin endpoint. Sends Discord (critical red) + email on failures only. Pings `HEALTHCHECK_SYNTHETIC_URL`. New `run_synthetic_monitor.bat` for Task Scheduler (every 4 hours on OPS-AUTOMATION). Health check: `get_synthetic_monitor_status()`.
+    - **Health check integration**: Three new methods in `src/monitoring/health_checks.py` — `get_backup_status()`, `get_dependency_status()`, `get_synthetic_monitor_status()` with remediation guidance for each.
+    - **Test suites**: `test_backup_restore.py` (20 tests), `test_dependency_monitor.py` (15 tests), `test_upgrade_packages.py` (12 tests), `test_synthetic_monitor.py` (22 tests) — 69 new tests total. One-time manual setup required for synthetic monitoring: create synthetic investor account, add env vars, create healthchecks.io monitor.
 
 ## Production Deployment (Launched Feb 2026)
 
@@ -490,12 +501,17 @@ The guiding principle: **automations that write to `data/tovito.db` run on the p
 
 *Management Laptop — **OPS-AUTOMATION** (no local database dependency):*
 - Discord trade notifier via Task Scheduler (`run_trade_notifier.bat` → `scripts/trading/discord_trade_notifier.py`) — polls brokerage APIs directly, posts to Discord
+- Synthetic monitoring via Task Scheduler (`run_synthetic_monitor.bat` → `scripts/devops/synthetic_monitor.py`) — every 4 hours, validates production from user's perspective
 - GitHub code sync via Task Scheduler (`scripts/utilities/sync_from_github.bat` — every 30 min)
 - Weekly maintenance restart via Task Scheduler (`scripts/utilities/weekly_restart.bat` — Sunday 3 AM)
+
+*Primary Laptop — scheduled:*
+- Dependency check via Task Scheduler (`run_dependency_check.bat` → `scripts/devops/dependency_monitor.py`) — weekly Monday 9 AM
 
 *Manual / on-demand (primary laptop):*
 - Weekly validation (`run_weekly_validation.bat`) — reads local DB
 - Monthly report generation and email delivery (`send_monthly_reports.bat`) — reads local DB
+- Upgrade automation (`scripts/devops/upgrade_packages.py --dry-run`) — interactive, never auto-deploys
 
 **Daily NAV Pipeline (10 steps in `daily_nav_enhanced.py`):**
 1. Fetch portfolio balance from brokerage (TastyTrade or Tradier via `BROKERAGE_PROVIDER`)
@@ -515,11 +531,12 @@ The guiding principle: **automations that write to `data/tovito.db` run on the p
 
 **Operations Health Dashboard:** `apps/ops_dashboard/app.py` — Streamlit dashboard (port 8502) showing health score, data freshness, automation status, reconciliation, NAV gaps, system logs, email delivery. Includes actionable remediation guidance for every non-green indicator. Data layer in `src/monitoring/health_checks.py` is UI-agnostic for reuse in CustomTkinter.
 
-**External Monitoring (healthchecks.io):** Two cron-job monitors configured at https://healthchecks.io under the "Tovito Watch Dog" project:
+**External Monitoring (healthchecks.io):** Three cron-job monitors configured at https://healthchecks.io under the "Tovito Watch Dog" project:
 - **Daily NAV** — Pinged by `daily_nav_enhanced.py` at end of each run (success or fail endpoint). Expected daily at ~4:05 PM EST. If no ping arrives within the grace period, healthchecks.io sends an email alert. Env var: `HEALTHCHECK_DAILY_NAV_URL`.
 - **Watchdog** — Pinged by `watchdog_monitor.py` only when ALL system checks pass AND no warnings. If the watchdog detects issues (stale NAV, heartbeat missing, log errors), it does NOT ping success. Env var: `HEALTHCHECK_WATCHDOG_URL`.
-- **Important:** Both scripts ping at the END of execution. If a script crashes before reaching the ping code, no ping is sent and healthchecks.io will eventually alert.
-- **Batch file dependency:** The `.bat` launchers must resolve the correct Python path. When Python is upgraded (e.g., 3.13 → 3.14), update the hardcoded paths in `run_daily.bat`, `run_watchdog.bat`, `run_trade_notifier.bat`, `sync_from_github.bat`, and `weekly_restart.bat` to match. Current: `C:\Python314\python.exe`.
+- **Synthetic Monitor** — Pinged by `synthetic_monitor.py` on pass/fail after running all HTTP checks against production. Expected every 4 hours on OPS-AUTOMATION. Env var: `HEALTHCHECK_SYNTHETIC_URL`.
+- **Important:** All scripts ping at the END of execution. If a script crashes before reaching the ping code, no ping is sent and healthchecks.io will eventually alert.
+- **Batch file dependency:** The `.bat` launchers must resolve the correct Python path. When Python is upgraded (e.g., 3.13 → 3.14), update the hardcoded paths in `run_daily.bat`, `run_watchdog.bat`, `run_trade_notifier.bat`, `run_dependency_check.bat`, `run_synthetic_monitor.bat`, `sync_from_github.bat`, and `weekly_restart.bat` to match. Current: `C:\Python314\python.exe`.
 
 **Discord Trade Notifier:** `scripts/trading/discord_trade_notifier.py` — Persistent service that polls TastyTrade and Tradier every 5 minutes during market hours (9:25 AM - 4:30 PM ET) for new trades and posts opening/closing trades to the `#tovito-trader-trades` Discord channel via webhook. Launcher: `run_trade_notifier.bat`. Env var: `DISCORD_TRADES_WEBHOOK_URL`.
 
@@ -527,8 +544,9 @@ The guiding principle: **automations that write to `data/tovito.db` run on the p
 
 **Management Laptop (OPS-AUTOMATION):** A dedicated always-on laptop that runs automations with NO local database dependency. It is NOT a development replica — no copy of `tovito.db`, no database-writing scripts. It only needs: `.env` (brokerage credentials + Discord webhook URL), Python + `tastytrade` package, and Git.
 
-*Scheduled tasks (3):*
+*Scheduled tasks (4):*
 - **Discord Trade Notifier** (`run_trade_notifier.bat`) — Weekdays 9:20 AM. Persistent service polling brokerage APIs every 5 min during market hours, posting trades to Discord. No database reads/writes.
+- **Synthetic Monitor** (`run_synthetic_monitor.bat`) — Every 4 hours. Validates production from user's perspective via HTTP checks (health, login, NAV freshness, frontend). Sends Discord/email alerts on failures only. Pings healthchecks.io.
 - **GitHub Code Sync** (`scripts/utilities/sync_from_github.bat`) — Every 30 minutes. Fetches `origin/main`, skips pull if no changes (silent exit, no log noise). When changes exist: pulls, auto-installs Python/npm dependencies if `requirements.txt` or `package.json` changed, logs changed migration scripts for manual review.
 - **Weekly Restart** (`scripts/utilities/weekly_restart.bat`) — Sunday 3 AM. Gracefully terminates Python/Node processes, issues `shutdown /r /t 30` to apply pending Windows updates. Task Scheduler tasks resume automatically after reboot.
 
@@ -635,7 +653,40 @@ python scripts/reporting/generate_monthly_report.py --month 2 --year 2026 --emai
 python scripts/validation/validate_comprehensive.py
 
 # Backup database
-python scripts/utilities/backup_database.py
+python scripts/utilities/backup_database.py                        # Simple DB backup
+python scripts/utilities/backup_database.py --full                 # Full backup (DB + .env + session)
+python scripts/utilities/backup_database.py --full --passphrase X  # Full backup with encrypted .env
+python scripts/utilities/backup_database.py --verify PATH          # Verify backup integrity
+python scripts/utilities/backup_database.py --rotate               # Remove old backups (keep 30, 90 days)
+python scripts/utilities/backup_database.py --list                 # List all backups
+
+# Restore database
+python scripts/utilities/restore_database.py --list                # List available backups
+python scripts/utilities/restore_database.py --restore PATH        # Restore from specific backup
+python scripts/utilities/restore_database.py --latest              # Restore from most recent
+python scripts/utilities/restore_database.py --full DIR --passphrase X  # Full restore with .env
+
+# Dependency monitoring (weekly automated, manual on-demand)
+python scripts/devops/dependency_monitor.py                        # Check all dependencies + notify
+python scripts/devops/dependency_monitor.py --no-notify            # Check without notifications
+python scripts/devops/dependency_monitor.py --pip-only             # Python packages only
+python scripts/devops/dependency_monitor.py --npm-only             # Node packages only
+python scripts/devops/dependency_monitor.py --json                 # JSON output
+
+# Upgrade automation (interactive, NEVER run in production)
+python scripts/devops/upgrade_packages.py --dry-run                # Preview what would change
+python scripts/devops/upgrade_packages.py --all-minor              # Upgrade all minor/patch versions
+python scripts/devops/upgrade_packages.py --package NAME           # Upgrade specific package (incl. major)
+python scripts/devops/upgrade_packages.py --npm                    # Upgrade npm packages
+python scripts/devops/upgrade_packages.py --rollback SNAPSHOT      # Rollback to snapshot
+python scripts/devops/upgrade_packages.py --list-snapshots         # List available snapshots
+
+# Synthetic monitoring (validates production from user's perspective)
+python scripts/devops/synthetic_monitor.py                         # Run all checks
+python scripts/devops/synthetic_monitor.py --check health          # Run specific check
+python scripts/devops/synthetic_monitor.py --url http://localhost:8000  # Check local dev
+python scripts/devops/synthetic_monitor.py --no-notify             # Skip Discord/email alerts
+python scripts/devops/synthetic_monitor.py --json                  # JSON output
 
 # Generate tutorials (video + HTML screenshot guides)
 python scripts/tutorials/generate_all.py                          # All 14 tutorials
@@ -722,6 +773,11 @@ DISCORD_RULES_WEBHOOK_URL=...  # Webhook for #rules-and-disclaimers channel (one
 # External monitoring
 HEALTHCHECK_DAILY_NAV_URL=...  # healthchecks.io ping URL (optional)
 HEALTHCHECK_WATCHDOG_URL=...   # healthchecks.io ping URL (optional)
+HEALTHCHECK_SYNTHETIC_URL=...  # healthchecks.io ping URL for synthetic monitor (optional)
+
+# Synthetic monitoring (Phase 20D)
+SYNTHETIC_MONITOR_EMAIL=...    # Synthetic investor account email (e.g., synthetic-monitor@tovitotrader.com)
+SYNTHETIC_MONITOR_PASSWORD=... # Synthetic investor account password
 
 # Encryption (for investor profile PII)
 ENCRYPTION_KEY=...             # Fernet key — generate via: python src/utils/encryption.py
@@ -747,11 +803,11 @@ TIMEZONE=America/New_York
 
 ## Testing
 
-- Tests are in `tests/` using pytest (~806 tests, all passing)
+- Tests are in `tests/` using pytest (~878 tests, all passing)
 - Test database setup: `scripts/setup/setup_test_database.py`
 - Test fixtures in `tests/conftest.py` — creates full schema including email_logs, daily_reconciliation, holdings_snapshots, position_snapshots, brokerage_transactions_raw, fund_flow_requests, investor_profiles, referrals, prospects, prospect_communications, plan_daily_performance, prospect_access_tokens, pii_access_log
 - **Always run tests against a test database, never production**
-- Key test files: test_contributions.py, test_withdrawals.py, test_nav_calculations.py, test_database_validation.py, test_chart_generation.py (includes TestBenchmarkChart), test_benchmarks.py (market data caching, normalization), test_ops_health_checks.py, test_remediation.py, test_brokerage_factory.py, test_combined_brokerage.py, test_tastytrade_client.py, test_etl.py, test_fund_flow.py, test_encryption.py, test_investor_profiles.py, test_discord_trade_notifier.py, test_discord_utils.py, test_discord_nav_updater.py, test_api_regression.py (tests fund-flow + benchmark + analysis endpoints), test_tutorials.py (tutorial infrastructure: annotator, HTML generator, video composer, terminal rendering), test_mindmap.py (data model, layout, Mermaid/PNG/SVG/HTML generators), test_portfolio_analysis.py (risk metrics, holdings aggregation, monthly performance, DB integration), test_report_generation_api.py (job tracking, input validation, rate limiting), test_auth_service.py (password validation, bcrypt hashing, verification flow, login/lockout, password reset), test_landing_page_api.py (teaser stats, prospect creation, public endpoints, rate limiting, input validation), test_admin_sync.py (admin key auth, upsert functions, sync payload assembly, endpoint integration), test_plan_classification.py (plan classification logic, compute_plan_performance, upsert_plan_performance, sync integration, plan API endpoints), test_prospect_access.py (token creation/validation/revocation, access tracking, prospect performance data, admin endpoints, security constraints), test_pii_security.py (versioned ciphertext, multi-key decryption, key rotation, PII access log, audit triggers, security headers, startup validation)
+- Key test files: test_contributions.py, test_withdrawals.py, test_nav_calculations.py, test_database_validation.py, test_chart_generation.py (includes TestBenchmarkChart), test_benchmarks.py (market data caching, normalization), test_ops_health_checks.py, test_remediation.py, test_brokerage_factory.py, test_combined_brokerage.py, test_tastytrade_client.py, test_etl.py, test_fund_flow.py, test_encryption.py, test_investor_profiles.py, test_discord_trade_notifier.py, test_discord_utils.py, test_discord_nav_updater.py, test_api_regression.py (tests fund-flow + benchmark + analysis endpoints), test_tutorials.py (tutorial infrastructure: annotator, HTML generator, video composer, terminal rendering), test_mindmap.py (data model, layout, Mermaid/PNG/SVG/HTML generators), test_portfolio_analysis.py (risk metrics, holdings aggregation, monthly performance, DB integration), test_report_generation_api.py (job tracking, input validation, rate limiting), test_auth_service.py (password validation, bcrypt hashing, verification flow, login/lockout, password reset), test_landing_page_api.py (teaser stats, prospect creation, public endpoints, rate limiting, input validation), test_admin_sync.py (admin key auth, upsert functions, sync payload assembly, endpoint integration), test_plan_classification.py (plan classification logic, compute_plan_performance, upsert_plan_performance, sync integration, plan API endpoints), test_prospect_access.py (token creation/validation/revocation, access tracking, prospect performance data, admin endpoints, security constraints), test_pii_security.py (versioned ciphertext, multi-key decryption, key rotation, PII access log, audit triggers, security headers, startup validation), test_backup_restore.py (full backup, verify, rotate, restore, manifest checksums), test_dependency_monitor.py (classify upgrades, pip/npm checks, reports, notifications), test_upgrade_packages.py (environment safety, backup, upgrade, test gate, rollback), test_synthetic_monitor.py (7 HTTP checks, notifications, healthchecks.io pings)
 
 ## Coding Conventions
 
